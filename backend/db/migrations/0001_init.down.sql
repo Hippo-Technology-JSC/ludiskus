@@ -1,0 +1,35 @@
+DROP TABLE IF EXISTS space_member_cache;
+DROP TABLE IF EXISTS space_cache;
+DROP TABLE IF EXISTS profile_cache;
+DROP TABLE IF EXISTS outbox;
+DROP TABLE IF EXISTS moderation_items;
+DROP TABLE IF EXISTS reports;
+DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS attachments;
+DROP TABLE IF EXISTS topic_tags;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS reactions;
+DROP TABLE IF EXISTS post_mentions;
+DROP TABLE IF EXISTS posts;
+DROP TABLE IF EXISTS topics;
+DROP TABLE IF EXISTS boards;
+DROP TABLE IF EXISTS space_moderators;
+DROP TABLE IF EXISTS space_forums;
+
+DROP FUNCTION IF EXISTS posts_tsv_trg();
+DROP FUNCTION IF EXISTS topics_tsv_trg();
+DROP FUNCTION IF EXISTS set_updated_at();
+DROP FUNCTION IF EXISTS ludiskus_tsv(text);
+
+DROP TYPE IF EXISTS outbox_status;
+DROP TYPE IF EXISTS mod_state;
+DROP TYPE IF EXISTS report_target;
+DROP TYPE IF EXISTS sub_target;
+DROP TYPE IF EXISTS attach_status;
+DROP TYPE IF EXISTS attach_kind;
+DROP TYPE IF EXISTS post_status;
+DROP TYPE IF EXISTS topic_status;
+DROP TYPE IF EXISTS topic_type;
+DROP TYPE IF EXISTS board_kind;
+DROP TYPE IF EXISTS post_policy;
+DROP TYPE IF EXISTS moderation_mode;

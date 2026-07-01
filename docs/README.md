@@ -11,6 +11,24 @@ Service đi theo đúng khuôn của các service Go trong hippo (lubo, luxport,
 `LUDISKUS_ROLE`; dùng chung Postgres, Redis, MinIO, auth HipCore; frontend nằm
 trong app **tm** đi qua **BFF**.
 
+## Mục lục
+
+| # | Tài liệu | Nội dung |
+|---|----------|----------|
+| 01 | [Tổng quan](01-tong-quan.md) | Mục tiêu, phạm vi, vai trò, yêu cầu phi chức năng |
+| 02 | [Kiến trúc](02-kien-truc.md) | Vị trí trong hippo, process, luồng xác thực, layout mã |
+| 03 | [Mô hình miền](03-mo-hinh-mien.md) | Space-cộng đồng, Board, Topic, Post, Reaction, Tag, Subscription, Report |
+| 04 | [Kiểm duyệt nội dung](04-kiem-duyet.md) | Chế độ kiểm duyệt theo Space, hàng đợi duyệt, lọc từ cấm, báo cáo |
+| 05 | [Cache Profile & Space](05-cache-profile-space.md) | Hai lớp cache, đồng bộ thành viên, phân quyền |
+| 06 | [Tìm kiếm](06-tim-kiem.md) | Postgres FTS (tsvector + unaccent), bộ lọc, xếp hạng |
+| 07 | [Đính kèm tập tin/hình ảnh](07-dinh-kem.md) | MinIO, presigned upload/download, kiểm tra loại/kích thước |
+| 08 | [Tích hợp lunoti](08-tich-hop-lunoti.md) | EventType/Rule cho reply, mention, reaction |
+| 09 | [Database](09-database.md) | Migration, bảng, index, FTS |
+| 10 | [Backend API](10-backend-api.md) | REST `/api/v1`, phân quyền |
+| 11 | [Frontend (tm + BFF)](11-frontend.md) | Route, proxy BFF, màn hình |
+| 12 | [Triển khai Docker](12-trien-khai-docker.md) | compose, DB, OAuth client, bucket, biến môi trường |
+| 13 | [Lộ trình](13-lo-trinh.md) | Các giai đoạn triển khai |
+
 ## Mục tiêu sử dụng
 
 ludiskus được thiết kế để phục vụ nhiều dạng cộng đồng trên cùng một mô hình:

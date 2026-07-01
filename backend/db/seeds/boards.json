@@ -1,0 +1,8 @@
+{
+  "default_boards": [
+    { "code": "general",       "name": "Thảo luận chung", "kind": "forum",        "position": 1, "description_md": "Khu vực thảo luận chung của cộng đồng." },
+    { "code": "qna",           "name": "Hỏi & Đáp",       "kind": "qna",          "position": 2, "description_md": "Đặt câu hỏi và nhận câu trả lời từ cộng đồng." },
+    { "code": "support",       "name": "Hỗ trợ",          "kind": "support",      "position": 3, "description_md": "Yêu cầu hỗ trợ kỹ thuật." },
+    { "code": "announcements", "name": "Thông báo",       "kind": "announcement", "position": 4, "description_md": "Thông báo chính thức từ ban quản trị." }
+  ]
+}

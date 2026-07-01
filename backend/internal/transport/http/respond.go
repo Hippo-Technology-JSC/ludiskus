@@ -1,0 +1,57 @@
+package http
+
+import (
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+
+	"ludiskus/internal/domain"
+)
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(body)
+}
+
+func badRequest(w http.ResponseWriter, msg string) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"error": map[string]any{"code": "bad_request", "message": msg},
+	})
+}
+
+// writeError ánh xạ lỗi miền → mã HTTP với body chuẩn.
+func writeError(w http.ResponseWriter, log *slog.Logger, err error) {
+	code, status := "internal_error", http.StatusInternalServerError
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		code, status = "not_found", http.StatusNotFound
+	case errors.Is(err, domain.ErrForbidden):
+		code, status = "forbidden", http.StatusForbidden
+	case errors.Is(err, domain.ErrUnauthorized):
+		code, status = "unauthorized", http.StatusUnauthorized
+	case errors.Is(err, domain.ErrValidation):
+		code, status = "validation_error", http.StatusUnprocessableEntity
+	case errors.Is(err, domain.ErrConflict):
+		code, status = "conflict", http.StatusConflict
+	case errors.Is(err, domain.ErrTooLarge):
+		code, status = "too_large", http.StatusRequestEntityTooLarge
+	}
+	msg := err.Error()
+	if status == http.StatusInternalServerError {
+		log.Error("internal error", "err", err)
+		msg = "internal error"
+	}
+	writeJSON(w, status, map[string]any{
+		"error": map[string]any{"code": code, "message": msg},
+	})
+}
+
+type listResponse[T any] struct {
+	Data []T `json:"data"`
+}
+
+func list[T any](items []T) listResponse[T] { return listResponse[T]{Data: items} }
+
+func dataResp(v any) map[string]any { return map[string]any{"data": v} }
