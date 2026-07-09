@@ -1,0 +1,117 @@
+name: ludiskus
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${LUDISKUS_DB_USER:-ludiskus}
+      POSTGRES_PASSWORD: ${LUDISKUS_DB_PASSWORD:-ludiskus}
+      POSTGRES_DB: ${LUDISKUS_DB_NAME:-ludiskus}
+    ports:
+      - "${LUDISKUS_DB_EXPOSE_PORT:-5441}:5432"
+    volumes:
+      - ludiskus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:8.2.0-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  ludiskus-api:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      LUDISKUS_ROLE: api
+      LUDISKUS_HTTP_ADDR: ${LUDISKUS_HTTP_ADDR:-:8080}
+      LUDISKUS_DB_DSN: postgres://${LUDISKUS_DB_USER:-ludiskus}:${LUDISKUS_DB_PASSWORD:-ludiskus}@postgres:5432/${LUDISKUS_DB_NAME:-ludiskus}?sslmode=disable
+      LUDISKUS_DB_MAX_CONNS: ${LUDISKUS_DB_MAX_CONNS:-10}
+      LUDISKUS_REDIS_URL: ${LUDISKUS_REDIS_URL:-redis://redis:6379/6}
+      HIPCORE_URL: ${HIPCORE_URL:-http://host.docker.internal:8081}
+      HIPCORE_JWKS_URL: ${HIPCORE_JWKS_URL:-}
+      HIPCORE_AUDIENCE: ${HIPCORE_AUDIENCE:-}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-}
+      LUDISKUS_HIPCORE_CLIENT_ID: ${LUDISKUS_HIPCORE_CLIENT_ID:-}
+      LUDISKUS_HIPCORE_CLIENT_SECRET: ${LUDISKUS_HIPCORE_CLIENT_SECRET:-}
+      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://host.docker.internal:8092}
+      LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
+      LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
+      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT}
+      LUDISKUS_S3_PUBLIC_ENDPOINT: ${LUDISKUS_S3_PUBLIC_ENDPOINT}
+      LUDISKUS_S3_ACCESS_KEY: ${LUDISKUS_S3_ACCESS_KEY}
+      LUDISKUS_S3_SECRET_KEY: ${LUDISKUS_S3_SECRET_KEY}
+      LUDISKUS_S3_BUCKET: ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
+      LUDISKUS_MAX_FILE_MB: ${LUDISKUS_MAX_FILE_MB:-25}
+      LUDISKUS_PRESIGN_TTL: ${LUDISKUS_PRESIGN_TTL:-5m}
+      LUDISKUS_MAX_ATTACHMENTS: ${LUDISKUS_MAX_ATTACHMENTS:-10}
+      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,application/zip}
+      LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
+    ports:
+      - "${LUDISKUS_API_PORT:-8096}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ludiskus-worker:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      LUDISKUS_ROLE: worker
+      LUDISKUS_DB_DSN: postgres://${LUDISKUS_DB_USER:-ludiskus}:${LUDISKUS_DB_PASSWORD:-ludiskus}@postgres:5432/${LUDISKUS_DB_NAME:-ludiskus}?sslmode=disable
+      LUDISKUS_DB_MAX_CONNS: ${LUDISKUS_DB_MAX_CONNS:-10}
+      LUDISKUS_REDIS_URL: ${LUDISKUS_REDIS_URL:-redis://redis:6379/6}
+      HIPCORE_URL: ${HIPCORE_URL:-http://host.docker.internal:8081}
+      HIPCORE_JWKS_URL: ${HIPCORE_JWKS_URL:-}
+      HIPCORE_AUDIENCE: ${HIPCORE_AUDIENCE:-}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-}
+      LUDISKUS_HIPCORE_CLIENT_ID: ${LUDISKUS_HIPCORE_CLIENT_ID:-}
+      LUDISKUS_HIPCORE_CLIENT_SECRET: ${LUDISKUS_HIPCORE_CLIENT_SECRET:-}
+      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://host.docker.internal:8092}
+      LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
+      LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
+      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT}
+      LUDISKUS_S3_PUBLIC_ENDPOINT: ${LUDISKUS_S3_PUBLIC_ENDPOINT}
+      LUDISKUS_S3_ACCESS_KEY: ${LUDISKUS_S3_ACCESS_KEY}
+      LUDISKUS_S3_SECRET_KEY: ${LUDISKUS_S3_SECRET_KEY}
+      LUDISKUS_S3_BUCKET: ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
+      LUDISKUS_CACHE_TTL: ${LUDISKUS_CACHE_TTL:-1h}
+      LUDISKUS_PROFILE_SYNC_INTERVAL: ${LUDISKUS_PROFILE_SYNC_INTERVAL:-6h}
+      LUDISKUS_SPACE_SYNC_INTERVAL: ${LUDISKUS_SPACE_SYNC_INTERVAL:-6h}
+      LUDISKUS_ATTACH_TTL: ${LUDISKUS_ATTACH_TTL:-24h}
+      LUDISKUS_REACTION_DEBOUNCE: ${LUDISKUS_REACTION_DEBOUNCE:-5m}
+      LUDISKUS_OUTBOX_MAX_ATTEMPTS: ${LUDISKUS_OUTBOX_MAX_ATTEMPTS:-6}
+      LUDISKUS_MAX_ATTACHMENTS: ${LUDISKUS_MAX_ATTACHMENTS:-10}
+      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,application/zip}
+      LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  ludiskus_postgres_data:

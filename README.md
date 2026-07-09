@@ -8,8 +8,22 @@ thông báo khi có trả lời/mention/reaction.
 
 Service đi theo đúng khuôn của các service Go trong hippo (lubo, luxport,
 **lunoti**): một image, hai vai trò `ludiskus-api` / `ludiskus-worker` chọn qua
-`LUDISKUS_ROLE`; dùng chung Postgres, Redis, MinIO, auth HipCore; frontend nằm
-trong app **tm** đi qua **BFF**.
+`LUDISKUS_ROLE`; dùng Postgres, Redis, object storage, auth HipCore; frontend
+nằm trong app **tm** đi qua **BFF**.
+
+## Deploy
+
+Repo hiện có sẵn:
+
+- `docker-compose.yml`
+- `.env.example`
+
+Chạy standalone:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
 
 ## Mục tiêu sử dụng
 
