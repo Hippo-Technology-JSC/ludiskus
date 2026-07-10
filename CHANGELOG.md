@@ -1,3 +1,8 @@
+## 2026-07-10
+
+### Changed
+- Thêm `.gitignore` ở root để bỏ qua các file local dạng `.env*` và `docker-compose*.yml`, đồng thời vẫn giữ các file mẫu như `.env.example` và `docker-compose.yml.example`.
+
 ## 2026-07-03
 
 ### Added
