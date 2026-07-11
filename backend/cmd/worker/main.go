@@ -79,6 +79,7 @@ func run(log *slog.Logger) error {
 
 	// Đăng ký event-type lên lunoti một lần lúc khởi động (best-effort).
 	go svc.RegisterEventTypes(ctx, log)
+	go svc.RegisterHiptTasks(ctx)
 	go cacheSync(ctx, log, svc, cfg.ProfileSyncInterval)
 	go cleanup(ctx, log, svc)
 

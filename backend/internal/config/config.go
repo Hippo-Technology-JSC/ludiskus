@@ -33,6 +33,10 @@ type Config struct {
 	LunotiClientID     string
 	LunotiClientSecret string
 
+	// lufami (điểm hipt) — dùng lại OAuth client HipCore ở trên làm credential;
+	// chỉ cần biết địa chỉ lufami. Để trống LUFAMI_API_URL = tắt tích hợp điểm.
+	LufamiURL string
+
 	// MinIO / S3 (đính kèm — docs/07).
 	S3Endpoint       string
 	S3PublicEndpoint string
@@ -81,6 +85,7 @@ func Load() (*Config, error) {
 		LunotiAPIURL:        strings.TrimRight(os.Getenv("LUNOTI_API_URL"), "/"),
 		LunotiClientID:      os.Getenv("LUDISKUS_LUNOTI_CLIENT_ID"),
 		LunotiClientSecret:  os.Getenv("LUDISKUS_LUNOTI_CLIENT_SECRET"),
+		LufamiURL:           strings.TrimRight(os.Getenv("LUFAMI_API_URL"), "/"),
 		S3Endpoint:          strings.TrimRight(get("LUDISKUS_S3_ENDPOINT", "http://minio:9000"), "/"),
 		S3PublicEndpoint:    strings.TrimRight(get("LUDISKUS_S3_PUBLIC_ENDPOINT", "http://localhost:9000"), "/"),
 		S3AccessKey:         get("LUDISKUS_S3_ACCESS_KEY", "minio"),

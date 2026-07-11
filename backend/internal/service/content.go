@@ -72,6 +72,7 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 
 	if status == domain.StatusPublished {
 		s.afterPostPublished(ctx, post)
+		s.awardTopicPoints(ctx, profileUUID, topic.ID)
 	} else {
 		item, e := s.repo.CreateModerationItem(ctx, domain.ModerationItem{
 			SpaceUUID: board.SpaceUUID, TargetType: "topic", TargetID: topic.ID, Source: modSource,

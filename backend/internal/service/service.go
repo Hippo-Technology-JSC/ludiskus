@@ -13,6 +13,7 @@ import (
 	"ludiskus/db"
 	"ludiskus/internal/config"
 	"ludiskus/internal/domain"
+	"ludiskus/internal/hipt"
 	"ludiskus/internal/identity"
 	"ludiskus/internal/markdown"
 	"ludiskus/internal/notify"
@@ -25,6 +26,7 @@ type Service struct {
 	ident  *identity.Service
 	store  *storage.Store
 	lunoti *notify.Client
+	hipt   *hipt.Client
 	md     *markdown.Renderer
 	cfg    *config.Config
 	redis  *redis.Client
@@ -43,8 +45,37 @@ type seedBoard struct {
 
 func New(repo *repository.Repo, ident *identity.Service, store *storage.Store, lunoti *notify.Client, md *markdown.Renderer, cfg *config.Config, rdb *redis.Client) *Service {
 	s := &Service{repo: repo, ident: ident, store: store, lunoti: lunoti, md: md, cfg: cfg, redis: rdb}
+	// Tích hợp điểm hipt: dùng lại chính OAuth client HipCore của ludiskus.
+	s.hipt = hipt.New(cfg.LufamiURL, cfg.HipcoreURL, cfg.HipcoreClientID, cfg.HipcoreClientSecret)
 	s.loadSeeds()
 	return s
+}
+
+// RegisterHiptTasks đăng ký nhiệm vụ điểm lên lufami (best-effort, lúc khởi động).
+func (s *Service) RegisterHiptTasks(ctx context.Context) {
+	if !s.hipt.Enabled() {
+		return
+	}
+	s.hipt.UpsertTask(ctx, "first_post", map[string]any{
+		"title": "Đăng bài viết đầu tiên", "description": "Tạo chủ đề đầu tiên trong diễn đàn",
+		"iconRef": "mdi:pencil", "actionUrl": "/ludiskus", "reward": 10, "recurrence": "once",
+	})
+	s.hipt.UpsertTask(ctx, "daily_post", map[string]any{
+		"title": "Đăng bài mỗi ngày", "description": "Tạo một chủ đề mới trong ngày",
+		"iconRef": "mdi:calendar-check", "actionUrl": "/ludiskus", "reward": 2, "recurrence": "daily",
+	})
+}
+
+// awardTopicPoints trao thưởng nhiệm vụ đăng bài (chạy nền, không chặn nghiệp vụ).
+func (s *Service) awardTopicPoints(ctx context.Context, profileUUID, topicID string) {
+	if !s.hipt.Enabled() || profileUUID == "" {
+		return
+	}
+	go func() {
+		c := context.WithoutCancel(ctx)
+		s.hipt.Complete(c, "first_post", profileUUID, "first_post:"+topicID, map[string]any{"topicId": topicID})
+		s.hipt.Complete(c, "daily_post", profileUUID, "daily_post:"+topicID, map[string]any{"topicId": topicID})
+	}()
 }
 
 func (s *Service) Identity() *identity.Service { return s.ident }
