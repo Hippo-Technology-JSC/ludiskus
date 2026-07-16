@@ -17,6 +17,13 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+    networks:
+      default:
+        aliases:
+          - ludiskus-postgres
+      shared:
+        aliases:
+          - ludiskus-postgres
 
   redis:
     image: redis:8.2.0-alpine
@@ -27,6 +34,13 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+    networks:
+      default:
+        aliases:
+          - ludiskus-redis
+      shared:
+        aliases:
+          - ludiskus-redis
 
   ludiskus-api:
     build:
@@ -41,13 +55,13 @@ services:
       LUDISKUS_DB_DSN: postgres://${LUDISKUS_DB_USER:-ludiskus}:${LUDISKUS_DB_PASSWORD:-ludiskus}@postgres:5432/${LUDISKUS_DB_NAME:-ludiskus}?sslmode=disable
       LUDISKUS_DB_MAX_CONNS: ${LUDISKUS_DB_MAX_CONNS:-10}
       LUDISKUS_REDIS_URL: ${LUDISKUS_REDIS_URL:-redis://redis:6379/6}
-      HIPCORE_URL: ${HIPCORE_URL:-http://host.docker.internal:8081}
+      HIPCORE_URL: ${HIPCORE_URL:-http://hipcore-app}
       HIPCORE_JWKS_URL: ${HIPCORE_JWKS_URL:-}
       HIPCORE_AUDIENCE: ${HIPCORE_AUDIENCE:-}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-}
       LUDISKUS_HIPCORE_CLIENT_ID: ${LUDISKUS_HIPCORE_CLIENT_ID:-}
       LUDISKUS_HIPCORE_CLIENT_SECRET: ${LUDISKUS_HIPCORE_CLIENT_SECRET:-}
-      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://host.docker.internal:8092}
+      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://lunoti-api:8080}
       LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
       LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
       LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT}
@@ -64,6 +78,9 @@ services:
       - "${LUDISKUS_API_PORT:-8096}:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - shared
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,13 +99,13 @@ services:
       LUDISKUS_DB_DSN: postgres://${LUDISKUS_DB_USER:-ludiskus}:${LUDISKUS_DB_PASSWORD:-ludiskus}@postgres:5432/${LUDISKUS_DB_NAME:-ludiskus}?sslmode=disable
       LUDISKUS_DB_MAX_CONNS: ${LUDISKUS_DB_MAX_CONNS:-10}
       LUDISKUS_REDIS_URL: ${LUDISKUS_REDIS_URL:-redis://redis:6379/6}
-      HIPCORE_URL: ${HIPCORE_URL:-http://host.docker.internal:8081}
+      HIPCORE_URL: ${HIPCORE_URL:-http://hipcore-app}
       HIPCORE_JWKS_URL: ${HIPCORE_JWKS_URL:-}
       HIPCORE_AUDIENCE: ${HIPCORE_AUDIENCE:-}
       GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-}
       LUDISKUS_HIPCORE_CLIENT_ID: ${LUDISKUS_HIPCORE_CLIENT_ID:-}
       LUDISKUS_HIPCORE_CLIENT_SECRET: ${LUDISKUS_HIPCORE_CLIENT_SECRET:-}
-      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://host.docker.internal:8092}
+      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://lunoti-api:8080}
       LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
       LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
       LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT}
@@ -107,6 +124,9 @@ services:
       LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - shared
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,3 +135,10 @@ services:
 
 volumes:
   ludiskus_postgres_data:
+
+networks:
+  default:
+    driver: bridge
+  shared:
+    external: true
+    name: ${SHARED_DOCKER_NETWORK:-hippo}

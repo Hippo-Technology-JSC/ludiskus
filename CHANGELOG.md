@@ -1,3 +1,8 @@
+## 2026-07-16
+
+### Changed
+- Chuẩn hóa compose mẫu của `ludiskus` vào external network chung `hippo`, đồng thời đổi mặc định `HIPCORE_URL` và `LUNOTI_API_URL` trong env example sang hostname nội bộ trên network chung.
+
 ## 2026-07-10
 
 ### Changed
