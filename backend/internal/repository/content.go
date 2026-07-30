@@ -12,13 +12,13 @@ import (
 // --- topics -----------------------------------------------------------------
 
 const topicCols = `id, space_uuid, board_id, author_profile_uuid, title, slug, type, status,
-	is_pinned, is_resolved, answer_post_id, reply_count, view_count, reaction_count,
+	is_pinned, is_resolved, answer_post_id, reply_count, view_count,
 	last_post_at, last_post_profile_uuid, created_at, updated_at`
 
 func scanTopic(row pgx.Row, t *domain.Topic) error {
 	return row.Scan(&t.ID, &t.SpaceUUID, &t.BoardID, &t.AuthorProfileUUID, &t.Title, &t.Slug,
 		&t.Type, &t.Status, &t.IsPinned, &t.IsResolved, &t.AnswerPostID, &t.ReplyCount,
-		&t.ViewCount, &t.ReactionCount, &t.LastPostAt, &t.LastPostProfileUUID,
+		&t.ViewCount, &t.LastPostAt, &t.LastPostProfileUUID,
 		&t.CreatedAt, &t.UpdatedAt)
 }
 
@@ -96,7 +96,7 @@ func (r *Repo) ListTopics(ctx context.Context, boardID, sort string, limit, offs
 	where := "t.board_id = $1 AND t.status = 'published'"
 	switch sort {
 	case "top":
-		order = "t.is_pinned DESC, t.reaction_count DESC, t.last_post_at DESC NULLS LAST"
+		order = "t.is_pinned DESC, t.reply_count DESC, t.view_count DESC, t.last_post_at DESC NULLS LAST"
 	case "unanswered":
 		where += " AND t.reply_count = 0"
 	}
@@ -153,7 +153,7 @@ func (r *Repo) SetTopicAnswer(ctx context.Context, topicID, postID string) error
 // topicColsT thêm prefix t. cho truy vấn có alias.
 const topicColsT = `t.id, t.space_uuid, t.board_id, t.author_profile_uuid, t.title, t.slug, t.type,
 	t.status, t.is_pinned, t.is_resolved, t.answer_post_id, t.reply_count, t.view_count,
-	t.reaction_count, t.last_post_at, t.last_post_profile_uuid, t.created_at, t.updated_at`
+	t.last_post_at, t.last_post_profile_uuid, t.created_at, t.updated_at`
 
 func collectTopics(rows pgx.Rows) ([]domain.Topic, error) {
 	defer rows.Close()
@@ -171,11 +171,11 @@ func collectTopics(rows pgx.Rows) ([]domain.Topic, error) {
 // --- posts ------------------------------------------------------------------
 
 const postCols = `id, topic_id, space_uuid, author_profile_uuid, reply_to_id, is_first, body_md,
-	body_html, is_answer, status, reaction_count, edited_at, created_at, updated_at`
+	body_html, is_answer, status, edited_at, created_at, updated_at`
 
 func scanPost(row pgx.Row, p *domain.Post) error {
 	return row.Scan(&p.ID, &p.TopicID, &p.SpaceUUID, &p.AuthorProfileUUID, &p.ReplyToID, &p.IsFirst,
-		&p.BodyMD, &p.BodyHTML, &p.IsAnswer, &p.Status, &p.ReactionCount, &p.EditedAt,
+		&p.BodyMD, &p.BodyHTML, &p.IsAnswer, &p.Status, &p.EditedAt,
 		&p.CreatedAt, &p.UpdatedAt)
 }
 
@@ -307,61 +307,6 @@ func (r *Repo) PublishPost(ctx context.Context, id string) (*domain.Post, error)
 		return nil, err
 	}
 	return &p, nil
-}
-
-// --- reactions --------------------------------------------------------------
-
-// ToggleReaction thêm/bỏ reaction; trả added=true nếu vừa thêm.
-func (r *Repo) ToggleReaction(ctx context.Context, postID, profileUUID, kind string) (added bool, err error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `DELETE FROM reactions WHERE post_id = $1 AND profile_uuid = $2 AND kind = $3`,
-		postID, profileUUID, kind)
-	if err != nil {
-		return false, err
-	}
-	if tag.RowsAffected() > 0 {
-		if _, err := tx.Exec(ctx, `UPDATE posts SET reaction_count = GREATEST(reaction_count - 1, 0) WHERE id = $1`, postID); err != nil {
-			return false, err
-		}
-		return false, tx.Commit(ctx)
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO reactions (post_id, profile_uuid, kind) VALUES ($1,$2,$3)`,
-		postID, profileUUID, kind); err != nil {
-		return false, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE posts SET reaction_count = reaction_count + 1 WHERE id = $1`, postID); err != nil {
-		return false, err
-	}
-	return true, tx.Commit(ctx)
-}
-
-func (r *Repo) ReactionsForPosts(ctx context.Context, postIDs []string) (map[string]map[string]int, error) {
-	out := map[string]map[string]int{}
-	if len(postIDs) == 0 {
-		return out, nil
-	}
-	rows, err := r.pool.Query(ctx, `SELECT post_id, kind, count(*) FROM reactions
-		WHERE post_id = ANY($1) GROUP BY post_id, kind`, postIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var pid, kind string
-		var n int
-		if err := rows.Scan(&pid, &kind, &n); err != nil {
-			return nil, err
-		}
-		if out[pid] == nil {
-			out[pid] = map[string]int{}
-		}
-		out[pid][kind] = n
-	}
-	return out, rows.Err()
 }
 
 // --- tags -------------------------------------------------------------------

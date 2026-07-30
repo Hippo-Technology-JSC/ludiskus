@@ -98,7 +98,6 @@ CREATE TABLE topics (
   answer_post_id uuid,
   reply_count   int NOT NULL DEFAULT 0,
   view_count    int NOT NULL DEFAULT 0,
-  reaction_count int NOT NULL DEFAULT 0,
   last_post_at  timestamptz,
   last_post_profile_uuid uuid,
   search_tsv    tsvector,
@@ -119,7 +118,6 @@ CREATE TABLE posts (
   body_html     text NOT NULL DEFAULT '',
   is_answer     boolean NOT NULL DEFAULT false,
   status        post_status NOT NULL DEFAULT 'published',
-  reaction_count int NOT NULL DEFAULT 0,
   search_tsv    tsvector,
   edited_at     timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -130,14 +128,6 @@ CREATE TABLE post_mentions (
   post_id        uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   profile_uuid   uuid NOT NULL,
   PRIMARY KEY (post_id, profile_uuid)
-);
-
-CREATE TABLE reactions (
-  post_id      uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  profile_uuid uuid NOT NULL,
-  kind         text NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (post_id, profile_uuid, kind)
 );
 
 CREATE TABLE tags (
@@ -278,7 +268,7 @@ CREATE INDEX idx_tags_name_trgm    ON tags   USING GIN (name gin_trgm_ops);
 - `posts_tsv`: `BEFORE INSERT/UPDATE OF body_md` → `search_tsv =
   ludiskus_tsv(NEW.body_md)`; nếu `is_first` thì cập nhật thêm trọng số `B` vào
   `topics.search_tsv` (hoặc để service ghép title+body).
-- Đếm (`reply_count`, `reaction_count`, `last_post_at`, `topic_count`…) cập nhật
+- Đếm (`reply_count`, `last_post_at`, `topic_count`…) cập nhật
   trong transaction của service hoặc qua worker để tránh hot-row contention.
 
 ## 9.4 Lấy việc khỏi outbox (mẫu SKIP LOCKED)
@@ -306,6 +296,10 @@ RETURNING o.*;
 ## 9.6 Down migration
 
 `0001_init.down.sql` drop bảng theo thứ tự ngược (cache, outbox, moderation_items,
-reports, subscriptions, attachments, topic_tags, tags, reactions, post_mentions,
+reports, subscriptions, attachments, topic_tags, tags, post_mentions,
 posts, topics, boards, space_moderators, space_forums) rồi drop function
 `ludiskus_tsv` và các enum type.
+
+Migration `0002_interaction_cutover` snapshot reaction lịch sử vào
+`interaction_backfill_outbox`, drop ngay `reactions` và hai cột
+`reaction_count`; worker chuyển idempotent sang Lufami rồi xoá hàng staging.

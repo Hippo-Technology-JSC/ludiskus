@@ -12,7 +12,7 @@ Redis, MinIO) và auth (HipCore). Có hai loại client:
   credentials** để đăng Topic/thông báo hệ thống trong một Space.
 
 ludiskus là **producer** đối với lunoti: nó đẩy *event* (`ludiskus.topic.replied`,
-`ludiskus.post.mentioned`, `ludiskus.post.reacted`…) sang `lunoti-api` để lunoti
+`ludiskus.post.mentioned`, `ludiskus.topic.answered`…) sang `lunoti-api` để lunoti
 phát thông báo — ludiskus **không** trực tiếp gửi email/push.
 
 ```
@@ -51,7 +51,7 @@ phát thông báo — ludiskus **không** trực tiếp gửi email/push.
 | Process | Vai trò | Nguồn |
 |---------|---------|-------|
 | `ludiskus-api` | REST API: CRUD board/topic/post/reaction/tag, tìm kiếm, đính kèm (cấp presigned), kiểm duyệt, ghi `outbox` | `ludiskus/backend` (Go) |
-| `ludiskus-worker` | (1) **đẩy `outbox`** sang lunoti (event reply/mention/reaction/moderation) với retry/backoff; (2) **đồng bộ cache** Profile/Space/members từ HipCore; (3) cập nhật **đếm thống kê** (số post, last_activity) và **chỉ mục FTS** nếu tách rời; (4) dọn **nháp/đính kèm mồ côi** | cùng image, chọn vai trò qua `LUDISKUS_ROLE` |
+| `ludiskus-worker` | (1) **đẩy `outbox`** sang lunoti (reply/mention/moderation) và backfill interaction lịch sử sang Lufami; (2) **đồng bộ cache** Profile/Space/members từ HipCore; (3) cập nhật **đếm thống kê**; (4) dọn **nháp/đính kèm mồ côi** | cùng image, chọn vai trò qua `LUDISKUS_ROLE` |
 
 Tách api/worker giống `bg360-api`/`bg360-worker`, `lunoti-api`/`lunoti-worker`:
 cùng image Go, biến `LUDISKUS_ROLE=api|worker` quyết định binary chạy

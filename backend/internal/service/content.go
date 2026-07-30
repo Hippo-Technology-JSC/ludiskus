@@ -81,6 +81,8 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 			s.notifyModerators(ctx, board.SpaceUUID, item.ID)
 		}
 	}
+	s.syncInteractionResource(ctx, "topic", topic.ID)
+	s.syncInteractionResource(ctx, "post", post.ID)
 	return topic, nil
 }
 
@@ -144,7 +146,11 @@ func (s *Service) UpdateTopic(ctx context.Context, topicID, profileUUID, title s
 	if strings.TrimSpace(title) == "" {
 		return nil, fmt.Errorf("%w: title là bắt buộc", domain.ErrValidation)
 	}
-	return s.repo.UpdateTopicMeta(ctx, topicID, title)
+	out, err := s.repo.UpdateTopicMeta(ctx, topicID, title)
+	if err == nil {
+		s.syncInteractionResource(ctx, "topic", topicID)
+	}
+	return out, err
 }
 
 // TopicAction: lock | unlock | pin | unpin | delete (moderator/tác giả).
@@ -180,7 +186,12 @@ func (s *Service) TopicAction(ctx context.Context, topicID, profileUUID, action 
 		if !mod && !owner {
 			return domain.ErrForbidden
 		}
-		return s.repo.SetTopicStatus(ctx, topicID, domain.StatusDeleted)
+		refs, _ := s.repo.InteractionRefsForTopic(ctx, topicID)
+		if err := s.repo.SetTopicStatus(ctx, topicID, domain.StatusDeleted); err != nil {
+			return err
+		}
+		s.invalidateInteractionRefs(ctx, refs, "deleted")
+		return nil
 	}
 	return fmt.Errorf("%w: action không hợp lệ", domain.ErrValidation)
 }
@@ -239,6 +250,7 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 			s.notifyModerators(ctx, t.SpaceUUID, item.ID)
 		}
 	}
+	s.syncInteractionResource(ctx, interactionResourceType(post), post.ID)
 	return post, nil
 }
 
@@ -270,7 +282,11 @@ func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD st
 		return nil, fmt.Errorf("%w: bodyMd là bắt buộc", domain.ErrValidation)
 	}
 	html := s.md.Render(bodyMD)
-	return s.repo.UpdatePost(ctx, postID, bodyMD, html)
+	out, err := s.repo.UpdatePost(ctx, postID, bodyMD, html)
+	if err == nil {
+		s.syncInteractionResource(ctx, interactionResourceType(out), postID)
+	}
+	return out, err
 }
 
 func (s *Service) DeletePost(ctx context.Context, postID, profileUUID string) error {
@@ -281,7 +297,11 @@ func (s *Service) DeletePost(ctx context.Context, postID, profileUUID string) er
 	if p.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, p.SpaceUUID, profileUUID)) {
 		return domain.ErrForbidden
 	}
-	return s.repo.SetPostStatus(ctx, postID, domain.StatusDeleted)
+	if err := s.repo.SetPostStatus(ctx, postID, domain.StatusDeleted); err != nil {
+		return err
+	}
+	s.invalidateInteractionResource(ctx, interactionResourceType(p), postID, "deleted")
+	return nil
 }
 
 // MarkAnswer đánh dấu post là câu trả lời (chỉ tác giả topic) — Q&A (docs/03).
@@ -302,32 +322,6 @@ func (s *Service) MarkAnswer(ctx context.Context, postID, profileUUID string) er
 	}
 	s.notifyAnswer(ctx, t, postID)
 	return nil
-}
-
-// --- reactions --------------------------------------------------------------
-
-func (s *Service) ToggleReaction(ctx context.Context, postID, profileUUID, kind string) (bool, error) {
-	if profileUUID == "" {
-		return false, domain.ErrUnauthorized
-	}
-	p, err := s.repo.GetPost(ctx, postID)
-	if err != nil {
-		return false, err
-	}
-	if _, err := s.requireView(ctx, p.SpaceUUID, profileUUID); err != nil {
-		return false, err
-	}
-	if kind == "" {
-		kind = "like"
-	}
-	added, err := s.repo.ToggleReaction(ctx, postID, profileUUID, kind)
-	if err != nil {
-		return false, err
-	}
-	if added {
-		s.notifyReaction(ctx, p, profileUUID)
-	}
-	return added, nil
 }
 
 // --- subscriptions ----------------------------------------------------------
@@ -443,7 +437,6 @@ func (s *Service) enrichPosts(ctx context.Context, spaceUUID string, posts []dom
 	}
 	pm := s.ident.ProfileMap(ctx, authors)
 	attMap, _ := s.repo.AttachmentsForPosts(ctx, ids)
-	reactMap, _ := s.repo.ReactionsForPosts(ctx, ids)
 	public := s.spaceIsPublic(ctx, spaceUUID)
 	for i := range posts {
 		posts[i].Author = pm[posts[i].AuthorProfileUUID]
@@ -454,7 +447,6 @@ func (s *Service) enrichPosts(ctx context.Context, spaceUUID string, posts []dom
 			}
 		}
 		posts[i].Attachments = atts
-		posts[i].Reactions = reactMap[posts[i].ID]
 	}
 }
 

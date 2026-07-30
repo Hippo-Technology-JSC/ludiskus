@@ -36,7 +36,7 @@ func (r *Repo) SearchTopics(ctx context.Context, q string, spaceUUIDs []string, 
 		var t domain.Topic
 		if err := rows.Scan(&t.ID, &t.SpaceUUID, &t.BoardID, &t.AuthorProfileUUID, &t.Title, &t.Slug,
 			&t.Type, &t.Status, &t.IsPinned, &t.IsResolved, &t.AnswerPostID, &t.ReplyCount,
-			&t.ViewCount, &t.ReactionCount, &t.LastPostAt, &t.LastPostProfileUUID,
+			&t.ViewCount, &t.LastPostAt, &t.LastPostProfileUUID,
 			&t.CreatedAt, &t.UpdatedAt, &t.Rank, &t.Highlight); err != nil {
 			return nil, err
 		}

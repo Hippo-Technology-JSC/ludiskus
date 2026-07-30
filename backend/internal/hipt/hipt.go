@@ -64,6 +64,32 @@ func (c *Client) Complete(ctx context.Context, code, profileUUID, idempotencyKey
 	}, nil)
 }
 
+func (c *Client) UpsertInteractionResources(ctx context.Context, resources any) error {
+	if !c.Enabled() {
+		return fmt.Errorf("lufami interaction chưa cấu hình")
+	}
+	return c.do(ctx, http.MethodPost, "/api/v1/s2s/interactions/resources",
+		map[string]any{"data": resources}, nil)
+}
+
+func (c *Client) InvalidateInteractionResources(
+	ctx context.Context, refs any, reason string,
+) error {
+	if !c.Enabled() {
+		return fmt.Errorf("lufami interaction chưa cấu hình")
+	}
+	return c.do(ctx, http.MethodPost, "/api/v1/s2s/interactions/resources/invalidate",
+		map[string]any{"refs": refs, "reason": reason}, nil)
+}
+
+func (c *Client) BackfillInteractions(ctx context.Context, batches any) error {
+	if !c.Enabled() {
+		return fmt.Errorf("lufami interaction chưa cấu hình")
+	}
+	return c.do(ctx, http.MethodPost, "/api/v1/s2s/interactions/backfill",
+		map[string]any{"data": batches}, nil)
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	token, err := c.accessToken(ctx)
 	if err != nil {

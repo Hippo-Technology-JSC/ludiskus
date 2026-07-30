@@ -75,7 +75,6 @@ Một luồng thảo luận. **Post đầu tiên** chứa nội dung mở đầu
 | `answer_post_id` | uuid? | Post được đánh dấu là câu trả lời |
 | `reply_count` | int | Số trả lời (không tính post đầu) |
 | `view_count` | int | Lượt xem |
-| `reaction_count` | int | Tổng reaction |
 | `last_post_at` | timestamptz? | Mốc post mới nhất (sắp xếp "mới hoạt động") |
 | `last_post_profile_uuid` | uuid? | Người trả lời gần nhất |
 | `search_tsv` | tsvector | Chỉ mục FTS (title + body post đầu) — [06](06-tim-kiem.md) |
@@ -102,7 +101,6 @@ là trả lời, hỗ trợ lồng (`reply_to_id`).
 | `body_html` | text | HTML đã render & sanitize (phục vụ hiển thị) |
 | `is_answer` | bool | (Q&A) được chấp nhận làm câu trả lời |
 | `status` | enum | `published` \| `pending` \| `hidden` \| `deleted` |
-| `reaction_count` | int | Tổng reaction |
 | `edited_at` | timestamptz? | Lần sửa gần nhất |
 | `search_tsv` | tsvector | Chỉ mục FTS theo nội dung post |
 | `created_at`/`updated_at` | timestamptz | |
@@ -111,17 +109,11 @@ là trả lời, hỗ trợ lồng (`reply_to_id`).
 > sang `profile_uuid` (qua cache) và ghi bảng `post_mentions` để đẩy event
 > mention sang lunoti ([08](08-tich-hop-lunoti.md)).
 
-## 3.5 Reaction
+## 3.5 Interaction
 
-Phản ứng (emoji/like) của một Profile lên một Post.
-
-| Thuộc tính | Kiểu | Mô tả |
-|------------|------|-------|
-| `post_id` | uuid | → Post |
-| `profile_uuid` | uuid | Người reaction |
-| `kind` | text | `like`, `love`, `up`, `down`, hoặc emoji code |
-| `created_at` | timestamptz | |
-| PK | (post_id, profile_uuid, kind) | Mỗi người 1 reaction/kind/post |
+Like, dislike, reaction, bookmark và share của Topic/Post/Reply thuộc
+**Interaction Platform của lufami**. Ludiskus chỉ cung cấp metadata và quyền
+truy cập qua `interaction-context`; không còn bảng hoặc bộ đếm reaction cục bộ.
 
 ## 3.6 Tag & TopicTag
 
@@ -238,4 +230,3 @@ Mọi **nội dung văn bản dài** trong ludiskus dùng **Markdown**, theo cù
 
 FE chỉ hiển thị `*_html` đã sanitize; trình soạn dùng chung một editor Markdown
 có preview cho Board/Topic/Post — [11 §11.3](11-frontend.md).
-

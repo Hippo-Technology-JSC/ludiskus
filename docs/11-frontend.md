@@ -29,7 +29,7 @@ thẳng lên MinIO** (không qua BFF) — chỉ gọi BFF để lấy URL ký.
 | `/ludiskus` | Danh sách **cộng đồng** (Space-forum người dùng thấy) + ô tìm kiếm toàn cục |
 | `/ludiskus/s/:space` | Trang Space: danh sách Board, topic nổi bật/mới, nút "Tạo chủ đề" |
 | `/ludiskus/s/:space/b/:board` | Danh sách Topic trong board (sort: mới/nóng/chưa trả lời), ghim lên đầu |
-| `/ludiskus/s/:space/t/:slug` | Chi tiết Topic: post đầu + trả lời (threaded), reaction, đính kèm, hộp soạn trả lời |
+| `/ludiskus/s/:space/t/:slug` | Chi tiết Topic: post đầu + trả lời, InteractionBar dùng chung, đính kèm, hộp soạn trả lời |
 | `/ludiskus/s/:space/new` | Trình soạn Topic (Markdown, chọn board/type/tag, kéo-thả đính kèm, @mention) |
 | `/ludiskus/search` | Kết quả tìm kiếm (lọc Space/board/tag/tác giả/thời gian) |
 | `/ludiskus/s/:space/moderation` | Bảng kiểm duyệt (hàng chờ + báo cáo) — chỉ moderator |
@@ -41,8 +41,8 @@ thẳng lên MinIO** (không qua BFF) — chỉ gọi BFF để lấy URL ký.
   → PUT MinIO → chèn placeholder → gắn khi gửi; **gợi ý @mention** tra Profile
   thành viên Space) — dùng cho **mô tả Board, thân Topic và Post** ([03 §3.12](03-mo-hinh-mien.md)).
   FE chỉ render `*_html` đã sanitize từ backend, không tự dựng HTML.
-- **Cây Topic/Post** threaded theo `reply_to_id`, nút reaction (gộp đếm theo
-  kind), badge "Câu trả lời" cho Q&A.
+- **Cây Topic/Post** threaded theo `reply_to_id`, `InteractionProvider` batch
+  summary và `InteractionBar` chung cho topic/post/reply, badge "Câu trả lời".
 - **Thanh tìm kiếm** với debounce, tô sáng đoạn khớp (`title_hl` từ `ts_headline`).
 - **Bảng kiểm duyệt**: tab Hàng chờ / Báo cáo; nút Duyệt / Từ chối (kèm lý do).
 - **Chuông thông báo**: tái dùng **trung tâm thông báo của lunoti** đã có trong

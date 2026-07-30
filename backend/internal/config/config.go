@@ -28,7 +28,7 @@ type Config struct {
 	// Bí mật chia sẻ để verify danh tính do API gateway ký (đường tin-cậy-gateway).
 	GatewaySecret string
 
-	// lunoti (đẩy event reply/mention/reaction — docs/08).
+	// lunoti (đẩy event reply/mention — interaction do lufami sở hữu).
 	LunotiAPIURL       string
 	LunotiClientID     string
 	LunotiClientSecret string
@@ -58,7 +58,6 @@ type Config struct {
 	AllowedMIME    []string
 
 	// Thông báo (docs/08)
-	ReactionDebounce  time.Duration
 	OutboxMaxAttempts int
 
 	LogLevel string
@@ -117,10 +116,6 @@ func Load() (*Config, error) {
 	if cfg.AttachTTL, err = time.ParseDuration(get("LUDISKUS_ATTACH_TTL", "24h")); err != nil {
 		return nil, fmt.Errorf("LUDISKUS_ATTACH_TTL: %w", err)
 	}
-	if cfg.ReactionDebounce, err = time.ParseDuration(get("LUDISKUS_REACTION_DEBOUNCE", "5m")); err != nil {
-		return nil, fmt.Errorf("LUDISKUS_REACTION_DEBOUNCE: %w", err)
-	}
-
 	maxMB, err := strconv.Atoi(get("LUDISKUS_MAX_FILE_MB", "25"))
 	if err != nil || maxMB < 1 {
 		return nil, fmt.Errorf("LUDISKUS_MAX_FILE_MB: phải là số nguyên dương")

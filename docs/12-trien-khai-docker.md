@@ -62,6 +62,7 @@ Hai service dùng chung image `ludiskus:dev`, vai trò qua `LUDISKUS_ROLE`:
       - HIPCORE_URL=http://hipcore
       - LUDISKUS_HIPCORE_CLIENT_ID=${LUDISKUS_HIPCORE_CLIENT_ID}
       - LUDISKUS_HIPCORE_CLIENT_SECRET=${LUDISKUS_HIPCORE_CLIENT_SECRET}
+      - LUFAMI_API_URL=http://lufami-api:8080
       - LUNOTI_API_URL=http://lunoti-api:8080
       - LUDISKUS_LUNOTI_CLIENT_ID=${LUDISKUS_LUNOTI_CLIENT_ID}
       - LUDISKUS_LUNOTI_CLIENT_SECRET=${LUDISKUS_LUNOTI_CLIENT_SECRET}
@@ -92,6 +93,7 @@ Hai service dùng chung image `ludiskus:dev`, vai trò qua `LUDISKUS_ROLE`:
       - HIPCORE_URL=http://hipcore
       - LUDISKUS_HIPCORE_CLIENT_ID=${LUDISKUS_HIPCORE_CLIENT_ID}
       - LUDISKUS_HIPCORE_CLIENT_SECRET=${LUDISKUS_HIPCORE_CLIENT_SECRET}
+      - LUFAMI_API_URL=http://lufami-api:8080
       - LUNOTI_API_URL=http://lunoti-api:8080
       - LUDISKUS_LUNOTI_CLIENT_ID=${LUDISKUS_LUNOTI_CLIENT_ID}
       - LUDISKUS_LUNOTI_CLIENT_SECRET=${LUDISKUS_LUNOTI_CLIENT_SECRET}
@@ -103,7 +105,6 @@ Hai service dùng chung image `ludiskus:dev`, vai trò qua `LUDISKUS_ROLE`:
       - LUDISKUS_SPACE_SYNC_INTERVAL=${LUDISKUS_SPACE_SYNC_INTERVAL:-6h}
       - LUDISKUS_CACHE_TTL=${LUDISKUS_CACHE_TTL:-1h}
       - LUDISKUS_ATTACH_TTL=${LUDISKUS_ATTACH_TTL:-24h}
-      - LUDISKUS_REACTION_DEBOUNCE=${LUDISKUS_REACTION_DEBOUNCE:-5m}
     networks: [hippo]
     depends_on:
       ludiskus-api: { condition: service_started }
@@ -132,6 +133,7 @@ và proxy `/api/ludiskus/*` trong [tm/bff/src/index.ts](../../tm/bff/src/index.t
 | `LUDISKUS_DB_PASSWORD` | `ludiskus` | Mật khẩu role Postgres `ludiskus` |
 | `LUDISKUS_API_PORT` | `8096` | Cổng host cho `ludiskus-api` |
 | `LUDISKUS_HIPCORE_CLIENT_ID/SECRET` | — | OAuth client đọc `/api/profiles*`, `/api/spaces*` |
+| `LUFAMI_API_URL` | `http://lufami-api:8080` | Interaction Platform và điểm hipt |
 | `LUDISKUS_LUNOTI_CLIENT_ID/SECRET` | — | OAuth client gửi event sang lunoti |
 | `LUDISKUS_S3_BUCKET` | `ludiskus-attachments` | Bucket đính kèm |
 | `LUDISKUS_S3_PUBLIC_ENDPOINT` | `http://localhost:9000` | Endpoint MinIO trình duyệt truy cập (ký URL) |
@@ -140,7 +142,6 @@ và proxy `/api/ludiskus/*` trong [tm/bff/src/index.ts](../../tm/bff/src/index.t
 | `LUDISKUS_CACHE_TTL` | `1h` | TTL cache Profile/Space/members trong Redis |
 | `LUDISKUS_PROFILE_SYNC_INTERVAL` / `_SPACE_SYNC_INTERVAL` | `6h` | Chu kỳ full-sync cache |
 | `LUDISKUS_ATTACH_TTL` | `24h` | Hạn dọn đính kèm mồ côi |
-| `LUDISKUS_REACTION_DEBOUNCE` | `5m` | Cửa sổ gộp event reaction |
 
 ## 12.7 Production
 
@@ -151,6 +152,6 @@ khai, không commit.
 
 ## 12.8 Lịch nội bộ
 
-Full-sync cache, dọn đính kèm mồ côi, gộp reaction và đẩy outbox chạy **nội bộ
+Full-sync cache, dọn đính kèm mồ côi, backfill interaction lịch sử và đẩy outbox chạy **nội bộ
 trong `ludiskus-worker`** (ticker Go + khoá Redis nhẹ) — không cần service cron
 riêng.

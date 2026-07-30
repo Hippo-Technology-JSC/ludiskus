@@ -102,7 +102,6 @@ type Topic struct {
 	AnswerPostID        *string        `json:"answerPostId,omitempty"`
 	ReplyCount          int            `json:"replyCount"`
 	ViewCount           int            `json:"viewCount"`
-	ReactionCount       int            `json:"reactionCount"`
 	LastPostAt          *time.Time     `json:"lastPostAt,omitempty"`
 	LastPostProfileUUID *string        `json:"lastPostProfileUuid,omitempty"`
 	CreatedAt           time.Time      `json:"createdAt"`
@@ -126,22 +125,14 @@ type Post struct {
 	BodyHTML          string         `json:"bodyHtml"`
 	IsAnswer          bool           `json:"isAnswer"`
 	Status            string         `json:"status"`
-	ReactionCount     int            `json:"reactionCount"`
 	EditedAt          *time.Time     `json:"editedAt,omitempty"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	UpdatedAt         time.Time      `json:"updatedAt"`
 	Author            *CachedProfile `json:"author,omitempty"`
 	Attachments       []Attachment   `json:"attachments,omitempty"`
-	Reactions         map[string]int `json:"reactions,omitempty"`
 }
 
-// --- Reaction / Tag ---------------------------------------------------------
-
-type Reaction struct {
-	PostID      string `json:"postId"`
-	ProfileUUID string `json:"profileUuid"`
-	Kind        string `json:"kind"`
-}
+// --- Tag --------------------------------------------------------------------
 
 type Tag struct {
 	ID         string `json:"id"`
@@ -149,6 +140,44 @@ type Tag struct {
 	Slug       string `json:"slug"`
 	Name       string `json:"name"`
 	UsageCount int    `json:"usageCount"`
+}
+
+// InteractionContext là contract pull mà Lufami dùng để xác minh metadata.
+type InteractionContext struct {
+	Type          string            `json:"type"`
+	ID            string            `json:"id"`
+	Exists        bool              `json:"exists"`
+	Owner         *InteractionOwner `json:"owner,omitempty"`
+	SpaceUUID     *string           `json:"spaceUuid,omitempty"`
+	Visibility    string            `json:"visibility"`
+	State         string            `json:"state"`
+	Title         string            `json:"title"`
+	Summary       string            `json:"summary"`
+	ThumbnailURL  string            `json:"thumbnailUrl"`
+	CanonicalPath string            `json:"canonicalPath"`
+	Capabilities  json.RawMessage   `json:"capabilities"`
+}
+
+type InteractionOwner struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+type InteractionRef struct {
+	Service string `json:"service"`
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+}
+
+type InteractionBackfillItem struct {
+	ID               int64
+	PostID           string
+	ResourceType     string
+	ActorProfileUUID string
+	InteractionKind  string
+	ReactionCode     string
+	OccurredAt       time.Time
+	Attempts         int
 }
 
 // --- Attachment -------------------------------------------------------------

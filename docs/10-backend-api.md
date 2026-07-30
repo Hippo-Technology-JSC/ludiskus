@@ -55,7 +55,7 @@ Tiền tố nội bộ `/api/v1`. Người dùng gọi qua **BFF** (`/api/ludisk
 
 Phản hồi `201` (publish ngay) hoặc `202` (`status=pending` nếu Space tiền kiểm).
 
-## 10.5 Post / Reaction
+## 10.5 Post / Interaction context
 
 | Method | Path | Mô tả |
 |--------|------|-------|
@@ -64,7 +64,14 @@ Phản hồi `201` (publish ngay) hoặc `202` (`status=pending` nếu Space ti�
 | PATCH | `/api/v1/posts/{id}` | Sửa (tác giả; ghi `edited_at`) |
 | DELETE | `/api/v1/posts/{id}` | Xoá mềm |
 | POST | `/api/v1/posts/{id}/answer` | Đánh dấu là câu trả lời (tác giả topic; Q&A) |
-| PUT | `/api/v1/posts/{id}/reactions` | Thêm/bỏ reaction (`{kind}`) |
+
+Like/reaction/bookmark/share được frontend gọi trực tiếp qua BFF Lufami. Contract
+S2S cho Lufami:
+
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | `/api/v1/s2s/interaction-context/{type}/{id}` | Metadata/quyền cho `topic`, `post`, `reply` |
+| POST | `/api/v1/s2s/interaction-context:batch` | Resolve tối đa 100 refs |
 
 ## 10.6 Tìm kiếm
 

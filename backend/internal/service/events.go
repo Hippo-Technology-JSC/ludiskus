@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"ludiskus/internal/domain"
 	"ludiskus/internal/notify"
@@ -100,34 +99,6 @@ func (s *Service) afterPostPublished(ctx context.Context, p *domain.Post) {
 			Recipients:     mrecips,
 		})
 	}
-}
-
-// notifyReaction phát thông báo reaction tới tác giả post (gộp theo cửa sổ).
-func (s *Service) notifyReaction(ctx context.Context, post *domain.Post, actorProfileUUID string) {
-	if post.AuthorProfileUUID == actorProfileUUID {
-		return
-	}
-	t, err := s.repo.GetTopic(ctx, post.TopicID)
-	if err != nil {
-		return
-	}
-	space, _ := s.ident.Space(ctx, post.SpaceUUID)
-	actor, _ := s.ident.Profile(ctx, actorProfileUUID)
-	actorName := actorProfileUUID
-	if actor != nil {
-		actorName = actor.Name
-	}
-	bucket := time.Now().Truncate(s.cfg.ReactionDebounce).Unix()
-	data, _ := json.Marshal(map[string]any{
-		"actors": actorName, "space": spaceName(space), "topic": t.Title,
-		"url": s.topicURL(space, t, post.ID),
-	})
-	s.enqueueEvent(ctx, notify.Event{
-		EventType:      "ludiskus.post.reacted",
-		IdempotencyKey: ptr(fmt.Sprintf("react:%s:%s:%d", post.ID, post.AuthorProfileUUID, bucket)),
-		Data:           data,
-		Recipients:     []notify.Recipient{{ProfileUUID: post.AuthorProfileUUID}},
-	})
 }
 
 // notifyAnswer báo người hỏi khi câu hỏi có câu trả lời được chấp nhận.

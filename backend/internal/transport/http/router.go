@@ -77,7 +77,6 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Patch("/", s.updatePost)
 				r.Delete("/", s.deletePost)
 				r.Post("/answer", s.markAnswer)
-				r.Put("/reactions", s.toggleReaction)
 				r.Post("/report", s.reportPost)
 			})
 
@@ -104,6 +103,8 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 		r.Group(func(r chi.Router) {
 			r.Use(authn.ServiceMiddleware)
 			r.Post("/admin/cache/refresh", s.refreshCache)
+			r.Get("/s2s/interaction-context/{type}/{id}", s.interactionContext)
+			r.Post("/s2s/interaction-context:batch", s.batchInteractionContext)
 		})
 	})
 

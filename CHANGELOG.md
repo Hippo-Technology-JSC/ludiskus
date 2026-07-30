@@ -1,3 +1,10 @@
+## 2026-07-29
+
+### Changed
+- Cut-over GĐ7 sang Interaction Platform của Lufami, bỏ API/domain/repository reaction cũ và dùng `InteractionBar` chung trong tm.
+- Migration `0002_interaction_cutover` snapshot dữ liệu lịch sử sang outbox backfill rồi drop ngay bảng `reactions` và các cột `reaction_count`; không dual-write.
+- Thêm contract S2S `interaction-context` cho topic/post/reply và worker backfill idempotent.
+
 ## 2026-07-16
 
 ### Changed

@@ -152,13 +152,17 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 			return err
 		}
 		if fp, e := s.repo.FirstPost(ctx, item.TargetID); e == nil {
-			s.repo.PublishPost(ctx, fp.ID)
-			s.afterPostPublished(ctx, fp)
+			if published, publishErr := s.repo.PublishPost(ctx, fp.ID); publishErr == nil {
+				s.afterPostPublished(ctx, published)
+				s.syncInteractionResource(ctx, "post", published.ID)
+			}
 		}
+		s.syncInteractionResource(ctx, "topic", item.TargetID)
 	case "post":
 		p, e := s.repo.PublishPost(ctx, item.TargetID)
 		if e == nil {
 			s.afterPostPublished(ctx, p)
+			s.syncInteractionResource(ctx, interactionResourceType(p), p.ID)
 		}
 	}
 	s.notifyModerationDecided(ctx, item, "duyệt", nil)
@@ -187,9 +191,15 @@ func (s *Service) RejectModeration(ctx context.Context, itemID, profileUUID stri
 func (s *Service) hideTarget(ctx context.Context, targetType, targetID string) {
 	switch targetType {
 	case "topic":
-		s.repo.SetTopicStatus(ctx, targetID, domain.StatusHidden)
+		refs, _ := s.repo.InteractionRefsForTopic(ctx, targetID)
+		if s.repo.SetTopicStatus(ctx, targetID, domain.StatusHidden) == nil {
+			s.invalidateInteractionRefs(ctx, refs, "visibility")
+		}
 	case "post":
-		s.repo.SetPostStatus(ctx, targetID, domain.StatusHidden)
+		p, _ := s.repo.GetPost(ctx, targetID)
+		if s.repo.SetPostStatus(ctx, targetID, domain.StatusHidden) == nil && p != nil {
+			s.invalidateInteractionResource(ctx, interactionResourceType(p), targetID, "visibility")
+		}
 	}
 }
 

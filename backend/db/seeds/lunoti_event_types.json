@@ -2,7 +2,6 @@
   "event_types": [
     { "code": "ludiskus.topic.replied",      "name": "Có trả lời mới",          "category": "discussion", "default_channels": ["web"] },
     { "code": "ludiskus.post.mentioned",     "name": "Bạn được nhắc đến",       "category": "discussion", "default_channels": ["web", "email"] },
-    { "code": "ludiskus.post.reacted",       "name": "Bài viết nhận reaction",  "category": "social",     "default_channels": ["web"] },
     { "code": "ludiskus.topic.answered",     "name": "Câu hỏi đã có trả lời",   "category": "discussion", "default_channels": ["web", "email"] },
     { "code": "ludiskus.moderation.pending", "name": "Có bài chờ duyệt",        "category": "moderation", "default_channels": ["web"] },
     { "code": "ludiskus.moderation.decided", "name": "Bài đã được xử lý",       "category": "moderation", "default_channels": ["web", "email"] }
@@ -13,8 +12,6 @@
     { "code": "ludiskus.post.mentioned", "name": "Được nhắc đến", "locale_default": "vi",
       "bodies": { "vi": { "web": { "title": "{{actor}} đã nhắc đến bạn", "body": "Trong \"{{topic}}\": {{excerpt}}", "action_url": "{{url}}" },
                           "email": { "subject": "[{{space}}] {{actor}} đã nhắc đến bạn", "body": "<p>{{actor}} đã nhắc đến bạn trong <b>{{topic}}</b>.</p>" } } } },
-    { "code": "ludiskus.post.reacted",   "name": "Reaction mới", "locale_default": "vi",
-      "bodies": { "vi": { "web": { "title": "Bài viết của bạn nhận reaction", "body": "{{actors}} đã bày tỏ cảm xúc về bài của bạn", "action_url": "{{url}}" } } } },
     { "code": "ludiskus.topic.answered", "name": "Đã có trả lời", "locale_default": "vi",
       "bodies": { "vi": { "web": { "title": "Câu hỏi của bạn đã có câu trả lời", "body": "Trong \"{{topic}}\"", "action_url": "{{url}}" } } } },
     { "code": "ludiskus.moderation.pending", "name": "Chờ duyệt", "locale_default": "vi",

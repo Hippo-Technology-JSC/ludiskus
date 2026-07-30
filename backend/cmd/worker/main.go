@@ -1,5 +1,6 @@
 // ludiskus worker: đẩy outbox sang lunoti (SKIP LOCKED), đồng bộ cache
-// Profile/Space, dọn đính kèm mồ côi, đăng ký event-type lên lunoti
+// Profile/Space, chuyển snapshot interaction lịch sử, dọn đính kèm mồ côi,
+// đăng ký event-type lên lunoti
 // (docs/02 §2.2, 05, 07, 08).
 package main
 
@@ -91,6 +92,7 @@ func run(log *slog.Logger) error {
 			log.Info("worker stopping")
 			return nil
 		case <-ticker.C:
+			svc.ProcessInteractionBackfill(ctx, log)
 			svc.ProcessOutbox(ctx, log)
 		}
 	}

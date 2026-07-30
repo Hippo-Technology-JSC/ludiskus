@@ -272,23 +272,6 @@ func (s *Server) markAnswer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type reactionBody struct {
-	Kind string `json:"kind"`
-}
-
-func (s *Server) toggleReaction(w http.ResponseWriter, r *http.Request) {
-	var b reactionBody
-	if !decode(w, r, &b) {
-		return
-	}
-	added, err := s.svc.ToggleReaction(r.Context(), chi.URLParam(r, "id"), s.me(r), b.Kind)
-	if err != nil {
-		writeError(w, s.log, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"added": added})
-}
-
 // --- search / tags ----------------------------------------------------------
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,7 @@ ludiskus bổ sung cho hippo một dịch vụ **thảo luận dạng diễn đ�
 mỗi **Space** của HipCore có thể hoạt động như một cộng đồng/forum riêng, người
 dùng tham gia thảo luận bằng **Profile**, có tìm kiếm, đính kèm tập tin/hình
 ảnh, kiểm duyệt nội dung theo cấu hình Space, và phối hợp với **lunoti** để
-thông báo khi có trả lời/mention/reaction.
+thông báo khi có trả lời/mention; tương tác xã hội dùng chung Lufami.
 
 Service đi theo đúng khuôn của các service Go trong hippo (lubo, luxport,
 **lunoti**): một image, hai vai trò `ludiskus-api` / `ludiskus-worker` chọn qua

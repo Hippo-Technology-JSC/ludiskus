@@ -56,7 +56,7 @@ Trong phạm vi:
 - Tìm kiếm toàn văn bằng **Postgres FTS** (`tsvector` + `unaccent`, GIN).
 - Đính kèm tập tin/hình ảnh qua **MinIO** (presigned upload/download).
 - Cache Profile + Space + thành viên Space (Redis hot + bảng bền vững).
-- Tích hợp lunoti: đăng ký EventType + Rule, đẩy event reply/mention/reaction/
+- Tích hợp lunoti: đăng ký EventType + Rule, đẩy event reply/mention/
   moderation.
 - Frontend cộng đồng/forum trong app tm (danh sách Space-cộng đồng, board, topic,
   trình soạn bài, tìm kiếm, bảng kiểm duyệt).
@@ -76,7 +76,7 @@ Ngoài phạm vi (giai đoạn sau):
 
 | Vai trò | Ca sử dụng |
 |---------|------------|
-| Thành viên Space (Profile) | Đọc, đăng Topic, trả lời, reaction, mention, đính kèm, theo dõi, tìm kiếm, báo cáo |
+| Thành viên Space (Profile) | Đọc, đăng Topic, trả lời, tương tác qua Lufami, mention, đính kèm, theo dõi, tìm kiếm, báo cáo |
 | Moderator / Space admin | Duyệt bài chờ, gỡ/khoá/ghim/di chuyển topic, xử lý báo cáo, cấu hình kiểm duyệt |
 | Space owner | Bật/tắt forum cho Space, tạo/sắp xếp Board, phân moderator |
 | Service hippo khác | (tuỳ chọn) tạo Topic hệ thống / thông báo trong một Space qua token client-credentials |

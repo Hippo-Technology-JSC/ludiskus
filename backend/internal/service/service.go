@@ -1,5 +1,5 @@
 // Package service chứa nghiệp vụ ludiskus (docs/03-08): forum theo Space, board,
-// topic/post, reaction, mention, tìm kiếm, đính kèm, kiểm duyệt, thông báo.
+// topic/post, mention, tìm kiếm, đính kèm, kiểm duyệt, thông báo.
 package service
 
 import (
@@ -246,6 +246,7 @@ func (s *Service) UpdateForumSettings(ctx context.Context, spaceUUID, profileUUI
 	if err != nil {
 		return nil, err
 	}
+	visibilityChanged := in.IsPublic != nil && forum.IsPublic != *in.IsPublic
 	if in.IsPublic != nil {
 		forum.IsPublic = *in.IsPublic
 	}
@@ -270,7 +271,13 @@ func (s *Service) UpdateForumSettings(ctx context.Context, spaceUUID, profileUUI
 	if in.DefaultTopicType != nil {
 		forum.DefaultTopicType = *in.DefaultTopicType
 	}
-	return s.repo.UpsertForum(ctx, *forum)
+	out, err := s.repo.UpsertForum(ctx, *forum)
+	if err == nil && visibilityChanged {
+		if refs, refErr := s.repo.InteractionRefsForSpace(ctx, spaceUUID); refErr == nil {
+			s.invalidateInteractionRefs(ctx, refs, "visibility")
+		}
+	}
+	return out, err
 }
 
 // --- moderator --------------------------------------------------------------
