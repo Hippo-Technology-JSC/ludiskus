@@ -1,0 +1,13 @@
+DROP TABLE IF EXISTS comment_revisions;
+DROP INDEX IF EXISTS idx_moditems_comment_pending;
+DROP INDEX IF EXISTS idx_reports_comment_open;
+DROP INDEX IF EXISTS uq_reports_open_reporter;
+DROP INDEX IF EXISTS idx_attach_comment;
+ALTER TABLE attachments DROP CONSTRAINT IF EXISTS attachments_owner_one;
+ALTER TABLE attachments DROP COLUMN IF EXISTS comment_id;
+DELETE FROM attachments WHERE space_uuid IS NULL;
+DELETE FROM reports WHERE space_uuid IS NULL;
+DELETE FROM moderation_items WHERE space_uuid IS NULL;
+ALTER TABLE attachments ALTER COLUMN space_uuid SET NOT NULL;
+ALTER TABLE reports ALTER COLUMN space_uuid SET NOT NULL;
+ALTER TABLE moderation_items ALTER COLUMN space_uuid SET NOT NULL;

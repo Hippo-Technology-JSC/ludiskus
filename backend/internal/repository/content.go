@@ -398,11 +398,11 @@ func (r *Repo) AddMentions(ctx context.Context, postID string, profileUUIDs []st
 
 // --- attachments ------------------------------------------------------------
 
-const attCols = `id, space_uuid, post_id, uploader_profile_uuid, object_key, file_name,
+const attCols = `id, COALESCE(space_uuid::text,''), post_id, comment_id, uploader_profile_uuid, object_key, file_name,
 	content_type, size_bytes, kind, width, height, status, created_at`
 
 func scanAttachment(row pgx.Row, a *domain.Attachment) error {
-	return row.Scan(&a.ID, &a.SpaceUUID, &a.PostID, &a.UploaderProfileUUID, &a.ObjectKey,
+	return row.Scan(&a.ID, &a.SpaceUUID, &a.PostID, &a.CommentID, &a.UploaderProfileUUID, &a.ObjectKey,
 		&a.FileName, &a.ContentType, &a.SizeBytes, &a.Kind, &a.Width, &a.Height, &a.Status, &a.CreatedAt)
 }
 
@@ -411,7 +411,7 @@ func (r *Repo) CreateAttachment(ctx context.Context, a domain.Attachment) (*doma
 	err := scanAttachment(r.pool.QueryRow(ctx, `
 		INSERT INTO attachments (space_uuid, uploader_profile_uuid, object_key, file_name,
 			content_type, size_bytes, kind, status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7::attach_kind,'pending')
+		VALUES (NULLIF($1,'')::uuid,$2,$3,$4,$5,$6,$7::attach_kind,'pending')
 		RETURNING `+attCols,
 		a.SpaceUUID, a.UploaderProfileUUID, a.ObjectKey, a.FileName, a.ContentType,
 		a.SizeBytes, a.Kind), &out)
@@ -455,6 +455,29 @@ func (r *Repo) AttachmentsForPosts(ctx context.Context, postIDs []string) (map[s
 		}
 		if a.PostID != nil {
 			out[*a.PostID] = append(out[*a.PostID], a)
+		}
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) AttachmentsForComments(ctx context.Context, commentIDs []string) (map[string][]domain.Attachment, error) {
+	out := map[string][]domain.Attachment{}
+	if len(commentIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `SELECT `+attCols+` FROM attachments
+		WHERE comment_id = ANY($1::uuid[]) AND status = 'attached' ORDER BY created_at`, commentIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a domain.Attachment
+		if err := scanAttachment(rows, &a); err != nil {
+			return nil, err
+		}
+		if a.CommentID != nil {
+			out[*a.CommentID] = append(out[*a.CommentID], a)
 		}
 	}
 	return out, rows.Err()

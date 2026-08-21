@@ -24,8 +24,12 @@ import (
 )
 
 const (
-	pollInterval    = 2 * time.Second
-	cleanupInterval = time.Hour
+	pollInterval             = 2 * time.Second
+	cleanupInterval          = time.Hour
+	commentNotifyInterval    = 10 * time.Second
+	commentVerifyInterval    = 30 * time.Second
+	commentReconcileInterval = time.Hour
+	commentHardeningInterval = time.Hour
 )
 
 func main() {
@@ -83,6 +87,12 @@ func run(log *slog.Logger) error {
 	go svc.RegisterHiptTasks(ctx)
 	go cacheSync(ctx, log, svc, cfg.ProfileSyncInterval)
 	go cleanup(ctx, log, svc)
+	if cfg.CommentEnabled {
+		go commentNotify(ctx, log, svc)
+		go commentVerify(ctx, log, svc)
+		go commentReconcile(ctx, log, svc, cfg.CommentReconcileHour)
+		go commentHardening(ctx, log, svc)
+	}
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -94,6 +104,91 @@ func run(log *slog.Logger) error {
 		case <-ticker.C:
 			svc.ProcessInteractionBackfill(ctx, log)
 			svc.ProcessOutbox(ctx, log)
+		}
+	}
+}
+
+func commentHardening(ctx context.Context, log *slog.Logger, svc *service.Service) {
+	t := time.NewTicker(commentHardeningInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if n, err := svc.DetectCommentAbuse(ctx); err != nil {
+				log.Error("detect comment abuse", "err", err)
+			} else if n > 0 {
+				log.Warn("comment abuse flags raised", "count", n)
+			}
+			if n, err := svc.SyncCommentScores(ctx); err != nil {
+				log.Error("sync comment scores", "err", err)
+			} else if n > 0 {
+				log.Info("synced comment scores", "count", n)
+			}
+		}
+	}
+}
+
+func commentNotify(ctx context.Context, log *slog.Logger, svc *service.Service) {
+	t := time.NewTicker(commentNotifyInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := svc.FlushCommentNotify(ctx)
+			if err != nil {
+				log.Error("flush comment notifications", "err", err)
+			} else if n > 0 {
+				log.Info("flushed comment notifications", "count", n)
+			}
+		}
+	}
+}
+func commentVerify(ctx context.Context, log *slog.Logger, svc *service.Service) {
+	t := time.NewTicker(commentVerifyInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := svc.VerifyCommentTargets(ctx)
+			if err != nil {
+				log.Error("verify comment targets", "err", err)
+			} else if n > 0 {
+				log.Info("verified comment targets", "count", n)
+			}
+		}
+	}
+}
+func commentReconcile(ctx context.Context, log *slog.Logger, svc *service.Service, hourUTC int) {
+	t := time.NewTicker(commentReconcileInterval)
+	defer t.Stop()
+	last := ""
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			day := now.UTC().Format("2006-01-02")
+			if now.UTC().Hour() != hourUTC || day == last {
+				continue
+			}
+			n, err := svc.ReconcileCommentCounts(ctx, "")
+			if err != nil {
+				log.Error("reconcile comment counters", "err", err)
+			} else {
+				last = day
+				log.Info("reconciled comment counters", "count", n)
+			}
+			if swept, e := svc.SweepCommentData(ctx); e != nil {
+				log.Error("sweep comment data", "err", e)
+			} else if swept > 0 {
+				log.Info("swept comment data", "count", swept)
+			}
 		}
 	}
 }

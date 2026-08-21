@@ -43,9 +43,9 @@ func jsonOrEmpty(b []byte) []byte {
 
 func (r *Repo) GetCachedProfile(ctx context.Context, uuid string) (*domain.CachedProfile, error) {
 	var p domain.CachedProfile
-	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, synced_at
+	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at
 		FROM profile_cache WHERE profile_uuid = $1`, uuid).
-		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.SyncedAt)
+		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -54,9 +54,9 @@ func (r *Repo) GetCachedProfile(ctx context.Context, uuid string) (*domain.Cache
 
 func (r *Repo) GetCachedProfileByCode(ctx context.Context, code string) (*domain.CachedProfile, error) {
 	var p domain.CachedProfile
-	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, synced_at
+	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at
 		FROM profile_cache WHERE lower(code) = lower($1) LIMIT 1`, code).
-		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.SyncedAt)
+		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -65,12 +65,13 @@ func (r *Repo) GetCachedProfileByCode(ctx context.Context, code string) (*domain
 
 func (r *Repo) UpsertCachedProfile(ctx context.Context, p domain.CachedProfile) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO profile_cache (profile_uuid, user_id, code, name, avatar, is_active, synced_at)
-		VALUES ($1,$2,$3,$4,$5,$6, now())
+		INSERT INTO profile_cache (profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7, now())
 		ON CONFLICT (profile_uuid) DO UPDATE SET
 			user_id = EXCLUDED.user_id, code = EXCLUDED.code, name = EXCLUDED.name,
-			avatar = EXCLUDED.avatar, is_active = EXCLUDED.is_active, synced_at = now()`,
-		p.ProfileUUID, p.UserID, p.Code, p.Name, p.Avatar, p.IsActive)
+			avatar = EXCLUDED.avatar, is_active = EXCLUDED.is_active,
+			created_at = COALESCE(EXCLUDED.created_at, profile_cache.created_at), synced_at = now()`,
+		p.ProfileUUID, p.UserID, p.Code, p.Name, p.Avatar, p.IsActive, p.CreatedAt)
 	return err
 }
 

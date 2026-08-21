@@ -4,7 +4,12 @@
     { "code": "ludiskus.post.mentioned",     "name": "Bạn được nhắc đến",       "category": "discussion", "default_channels": ["web", "email"] },
     { "code": "ludiskus.topic.answered",     "name": "Câu hỏi đã có trả lời",   "category": "discussion", "default_channels": ["web", "email"] },
     { "code": "ludiskus.moderation.pending", "name": "Có bài chờ duyệt",        "category": "moderation", "default_channels": ["web"] },
-    { "code": "ludiskus.moderation.decided", "name": "Bài đã được xử lý",       "category": "moderation", "default_channels": ["web", "email"] }
+    { "code": "ludiskus.moderation.decided", "name": "Bài đã được xử lý",       "category": "moderation", "default_channels": ["web", "email"] },
+    { "code": "ludiskus.comment.created",    "name": "Có bình luận mới",       "category": "discussion", "default_channels": ["web"] },
+    { "code": "ludiskus.comment.replied",    "name": "Có trả lời bình luận",   "category": "discussion", "default_channels": ["web"] },
+    { "code": "ludiskus.comment.mentioned",  "name": "Được nhắc trong bình luận", "category": "discussion", "default_channels": ["web", "email"] },
+    { "code": "ludiskus.comment.pending",    "name": "Bình luận chờ duyệt",    "category": "moderation", "default_channels": ["web"] },
+    { "code": "ludiskus.comment.moderated",  "name": "Bình luận đã được xử lý", "category": "moderation", "default_channels": ["web", "email"] }
   ],
   "templates": [
     { "code": "ludiskus.topic.replied",  "name": "Trả lời mới",  "locale_default": "vi",
@@ -17,6 +22,18 @@
     { "code": "ludiskus.moderation.pending", "name": "Chờ duyệt", "locale_default": "vi",
       "bodies": { "vi": { "web": { "title": "Có bài chờ duyệt", "body": "Trong cộng đồng {{space}}", "action_url": "{{url}}" } } } },
     { "code": "ludiskus.moderation.decided", "name": "Đã xử lý", "locale_default": "vi",
-      "bodies": { "vi": { "web": { "title": "Bài của bạn đã được {{decision}}", "body": "{{note}}", "action_url": "{{url}}" } } } }
+      "bodies": { "vi": { "web": { "title": "Bài của bạn đã được {{decision}}", "body": "{{note}}", "action_url": "{{url}}" } } } },
+    { "code": "ludiskus.comment.created", "name": "Bình luận mới", "locale_default": "vi",
+      "bodies": { "vi": { "web": { "title": "{{actor}} đã bình luận về ‘{{resourceTitle}}’", "body": "{{excerpt}}", "action_url": "{{url}}" } } } },
+    { "code": "ludiskus.comment.replied", "name": "Trả lời bình luận", "locale_default": "vi",
+      "bodies": { "vi": { "web": { "title": "Có trả lời mới trong ‘{{resourceTitle}}’", "body": "{{actor}} và {{others}} người khác đã trả lời", "action_url": "{{url}}" } } } },
+    { "code": "ludiskus.comment.mentioned", "name": "Nhắc đến trong bình luận", "locale_default": "vi",
+      "bodies": { "vi": { "web": { "title": "{{actor}} đã nhắc đến bạn", "body": "{{excerpt}}", "action_url": "{{url}}" },
+                          "email": { "subject": "{{actor}} đã nhắc đến bạn", "body": "<p>{{excerpt}}</p>" } } } },
+    { "code": "ludiskus.comment.pending", "name": "Bình luận chờ duyệt", "locale_default": "vi",
+      "bodies": { "vi": { "web": { "title": "{{count}} bình luận chờ duyệt", "body": "Trong {{spaceName}}", "action_url": "{{url}}" } } } },
+    { "code": "ludiskus.comment.moderated", "name": "Bình luận đã xử lý", "locale_default": "vi",
+      "bodies": { "vi": { "web": { "title": "Bình luận của bạn đã bị {{decision}}", "body": "{{note}}", "action_url": "{{url}}" },
+                          "email": { "subject": "Bình luận của bạn đã được xử lý", "body": "<p>{{note}}</p>" } } } }
   ]
 }

@@ -31,6 +31,12 @@ func (r *Repo) CountOpenReports(ctx context.Context, targetType, targetID string
 	return n, err
 }
 
+func (r *Repo) CreateCommentReport(ctx context.Context, spaceUUID *string, commentID, reporter, reason string, note *string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `INSERT INTO reports(space_uuid,target_type,target_id,reporter_profile_uuid,reason,note)
+		VALUES($1,'comment',$2,$3,$4,$5) ON CONFLICT DO NOTHING`, spaceUUID, commentID, reporter, reason, note)
+	return err == nil && tag.RowsAffected() > 0, err
+}
+
 func (r *Repo) ListOpenReports(ctx context.Context, spaceUUID string, limit int) ([]domain.Report, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id, space_uuid, target_type, target_id,
 		reporter_profile_uuid, reason, note, status, created_at FROM reports
@@ -87,6 +93,13 @@ func (r *Repo) CreateModerationItem(ctx context.Context, m domain.ModerationItem
 		RETURNING `+modCols,
 		m.SpaceUUID, m.TargetType, m.TargetID, m.Source), &out)
 	return &out, err
+}
+
+func (r *Repo) CreateCommentModerationItem(ctx context.Context, spaceUUID *string, commentID, source string) (string, error) {
+	var id string
+	err := r.pool.QueryRow(ctx, `INSERT INTO moderation_items(space_uuid,target_type,target_id,source,state)
+		VALUES($1,'comment',$2,$3,'pending') RETURNING id`, spaceUUID, commentID, source).Scan(&id)
+	return id, err
 }
 
 func (r *Repo) GetModerationItem(ctx context.Context, id string) (*domain.ModerationItem, error) {

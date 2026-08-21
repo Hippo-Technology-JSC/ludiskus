@@ -368,12 +368,13 @@ func (s *Service) get(ctx context.Context, path string) ([]byte, int, error) {
 }
 
 type hcProfile struct {
-	UUID     string  `json:"uuid"`
-	UserID   *int64  `json:"user_id"`
-	Code     *string `json:"code"`
-	Name     string  `json:"name"`
-	Avatar   *string `json:"avatar"`
-	IsActive *bool   `json:"is_active"`
+	UUID      string     `json:"uuid"`
+	UserID    *int64     `json:"user_id"`
+	Code      *string    `json:"code"`
+	Name      string     `json:"name"`
+	Avatar    *string    `json:"avatar"`
+	IsActive  *bool      `json:"is_active"`
+	CreatedAt *time.Time `json:"created_at"`
 }
 
 func (h hcProfile) toDomain() domain.CachedProfile {
@@ -383,17 +384,52 @@ func (h hcProfile) toDomain() domain.CachedProfile {
 	}
 	return domain.CachedProfile{
 		ProfileUUID: h.UUID, UserID: h.UserID, Code: h.Code, Name: h.Name,
-		Avatar: h.Avatar, IsActive: active, SyncedAt: time.Now(),
+		Avatar: h.Avatar, IsActive: active, CreatedAt: h.CreatedAt, SyncedAt: time.Now(),
 	}
 }
 
+type flexString string
+
+func (f *flexString) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*f = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var value string
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		*f = flexString(value)
+		return nil
+	}
+	if data[0] == '{' {
+		var value struct {
+			Code string `json:"code"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		if value.Code != "" {
+			*f = flexString(value.Code)
+		} else {
+			*f = flexString(value.Name)
+		}
+	}
+	return nil
+}
+
 type hcSpace struct {
-	UUID      string  `json:"uuid"`
-	Code      *string `json:"code"`
-	Name      string  `json:"name"`
-	IsPublic  *bool   `json:"is_public"`
-	IsActive  *bool   `json:"is_active"`
-	SpaceType *string `json:"space_type"`
+	UUID           string      `json:"uuid"`
+	Code           *string     `json:"code"`
+	Name           string      `json:"name"`
+	IsPublic       *bool       `json:"is_public"`
+	IsActive       *bool       `json:"is_active"`
+	SpaceType      *flexString `json:"space_type"`
+	CreatorProfile *struct {
+		UUID string `json:"uuid"`
+	} `json:"creator_profile"`
 }
 
 func (h hcSpace) toDomain() domain.CachedSpace {
@@ -404,9 +440,18 @@ func (h hcSpace) toDomain() domain.CachedSpace {
 	if h.IsActive != nil {
 		active = *h.IsActive
 	}
+	var spaceType *string
+	if h.SpaceType != nil && string(*h.SpaceType) != "" {
+		value := string(*h.SpaceType)
+		spaceType = &value
+	}
+	var creator *string
+	if h.CreatorProfile != nil && h.CreatorProfile.UUID != "" {
+		creator = &h.CreatorProfile.UUID
+	}
 	return domain.CachedSpace{
 		SpaceUUID: h.UUID, Code: h.Code, Name: h.Name, IsPublic: pub,
-		IsActive: active, SpaceType: h.SpaceType, SyncedAt: time.Now(),
+		IsActive: active, SpaceType: spaceType, CreatorProfileUUID: creator, SyncedAt: time.Now(),
 	}
 }
 

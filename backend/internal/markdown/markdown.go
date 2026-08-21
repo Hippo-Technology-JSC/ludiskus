@@ -4,6 +4,7 @@ package markdown
 
 import (
 	"bytes"
+	"html"
 	"regexp"
 	"strings"
 
@@ -18,29 +19,69 @@ import (
 var mentionRe = regexp.MustCompile(`(^|[\s(])@([A-Za-z0-9][A-Za-z0-9_.\-]{1,63})`)
 
 type Renderer struct {
-	md     goldmark.Markdown
-	policy *bluemonday.Policy
+	richMD      goldmark.Markdown
+	basicMD     goldmark.Markdown
+	policyRich  *bluemonday.Policy
+	policyBasic *bluemonday.Policy
 }
 
 func New() *Renderer {
-	md := goldmark.New(
+	richMD := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithRendererOptions(gmhtml.WithHardWraps()),
 	)
-	p := bluemonday.UGCPolicy()
-	p.AllowAttrs("class").Globally()
-	p.RequireNoFollowOnLinks(true)
-	p.AddTargetBlankToFullyQualifiedLinks(true)
-	return &Renderer{md: md, policy: p}
+	rich := bluemonday.UGCPolicy()
+	rich.AllowAttrs("class").Globally()
+	rich.RequireNoFollowOnLinks(true)
+	rich.AddTargetBlankToFullyQualifiedLinks(true)
+	basicMD := goldmark.New(
+		goldmark.WithExtensions(extension.Strikethrough, extension.Linkify),
+		goldmark.WithRendererOptions(gmhtml.WithHardWraps()),
+	)
+	basic := bluemonday.NewPolicy()
+	basic.AllowElements("p", "br", "strong", "em", "del", "code", "pre", "blockquote", "ul", "ol", "li", "a")
+	basic.AllowAttrs("href", "title").OnElements("a")
+	basic.AllowStandardURLs()
+	basic.RequireNoFollowOnLinks(true)
+	basic.AddTargetBlankToFullyQualifiedLinks(true)
+	return &Renderer{richMD: richMD, basicMD: basicMD, policyRich: rich, policyBasic: basic}
 }
 
 // Render trả HTML đã sanitize từ Markdown.
 func (r *Renderer) Render(src string) string {
-	var buf bytes.Buffer
-	if err := r.md.Convert([]byte(src), &buf); err != nil {
-		return r.policy.Sanitize(src)
+	return r.RenderMode("rich", src)
+}
+
+// RenderMode renders comment markdown using the requested, allowlisted level.
+func (r *Renderer) RenderMode(mode, src string) string {
+	if mode == "plain" {
+		return renderPlain(src)
 	}
-	return r.policy.Sanitize(buf.String())
+	md, policy := r.basicMD, r.policyBasic
+	if mode == "rich" {
+		md, policy = r.richMD, r.policyRich
+	}
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(src), &buf); err != nil {
+		return policy.Sanitize(src)
+	}
+	return policy.Sanitize(buf.String())
+}
+
+func (r *Renderer) RenderBasic(src string) string { return r.RenderMode("basic", src) }
+func (r *Renderer) RenderPlain(src string) string { return r.RenderMode("plain", src) }
+
+var urlRE = regexp.MustCompile(`https?://[^\s<]+`)
+
+func renderPlain(src string) string {
+	escaped := html.EscapeString(src)
+	for _, pair := range [][2]string{{"javascript:", "javascript&#58;"}, {"data:text/html", "data&#58;text/html"}, {"onerror=", "onerror&#61;"}, {"onload=", "onload&#61;"}, {"onclick=", "onclick&#61;"}, {"onfocus=", "onfocus&#61;"}, {"ontoggle=", "ontoggle&#61;"}, {"onstart=", "onstart&#61;"}} {
+		escaped = strings.ReplaceAll(escaped, pair[0], pair[1])
+	}
+	escaped = urlRE.ReplaceAllStringFunc(escaped, func(v string) string {
+		return `<a href="` + v + `" rel="nofollow noopener" target="_blank">` + v + `</a>`
+	})
+	return strings.ReplaceAll(escaped, "\n", "<br>\n")
 }
 
 // Mentions trích danh sách handle (code/uuid) được nhắc tới, đã khử trùng lặp,

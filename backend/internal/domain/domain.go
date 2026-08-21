@@ -186,6 +186,7 @@ type Attachment struct {
 	ID                  string    `json:"id"`
 	SpaceUUID           string    `json:"spaceUuid"`
 	PostID              *string   `json:"postId,omitempty"`
+	CommentID           *string   `json:"commentId,omitempty"`
 	UploaderProfileUUID string    `json:"uploaderProfileUuid"`
 	ObjectKey           string    `json:"objectKey"`
 	FileName            string    `json:"fileName"`
@@ -258,13 +259,14 @@ type OutboxItem struct {
 // --- Cache (docs/05) --------------------------------------------------------
 
 type CachedProfile struct {
-	ProfileUUID string    `json:"profileUuid"`
-	UserID      *int64    `json:"userId,omitempty"`
-	Code        *string   `json:"code,omitempty"`
-	Name        string    `json:"name"`
-	Avatar      *string   `json:"avatar,omitempty"`
-	IsActive    bool      `json:"isActive"`
-	SyncedAt    time.Time `json:"syncedAt"`
+	ProfileUUID string     `json:"profileUuid"`
+	UserID      *int64     `json:"userId,omitempty"`
+	Code        *string    `json:"code,omitempty"`
+	Name        string     `json:"name"`
+	Avatar      *string    `json:"avatar,omitempty"`
+	IsActive    bool       `json:"isActive"`
+	CreatedAt   *time.Time `json:"createdAt,omitempty"`
+	SyncedAt    time.Time  `json:"syncedAt"`
 }
 
 type CachedSpace struct {

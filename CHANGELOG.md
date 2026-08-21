@@ -1,3 +1,16 @@
+## 2026-08-21
+
+### Added
+- Bộ tài liệu thiết kế + kế hoạch thực hiện **LuComment** — phân hệ bình luận dùng chung cho toàn hệ sinh thái, tại [docs/comment/](docs/comment/README.md) (17 tài liệu: mô hình miền, hợp đồng resolver S2S, cây/phân trang, phân quyền, kiểm duyệt, nội dung/đính kèm, thông báo, database `0003`–`0006`, API, frontend, tích hợp service, triển khai, lộ trình GĐ0–GĐ7, danh sách công việc chi tiết).
+- Mục "Phân hệ" trong [docs/README.md](docs/README.md) trỏ tới bộ tài liệu trên.
+- Triển khai LuComment GĐ0–GĐ7: migration `0003`–`0008`, resolver/registry/policy, API user/public/S2S/admin, cây bình luận, moderation, notification buffer, abuse flags, reconcile và score cache.
+- Bộ component `tm/frontend/src/components/comment`, các trang hộp thư/permalink/admin và tích hợp thật vào Lumuse, Lukolek, Lukode và LuProjet.
+
+### Changed
+- Siết token S2S theo OAuth audience của registry, hỗ trợ quy ước HipCore Passport `sub=aud` cho client-credentials nhưng vẫn chặn token người dùng.
+- BFF thêm public LuComment read-only, giới hạn theo IP và che `resource_id` trong access log.
+- Worker nhận notification bằng lease `FOR UPDATE SKIP LOCKED`, ghi buffer cùng transaction tạo/duyệt và kéo like aggregate từ Lufami cho `sort=top`.
+
 ## 2026-07-29
 
 ### Changed

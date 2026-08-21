@@ -1,0 +1,21 @@
+{
+  "policies": [
+    {"service":"lumuse","types":["movie","episode","album","music","video","playlist"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"post","public_read":true}},
+    {"service":"lukolek","types":["collection","item","catalog","catalog_item"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":true},"public_read":true}},
+    {"service":"lukode","types":["presentation"],"config":{"who_can_comment":"members","max_depth":1,"markdown":"rich","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":false},"public_read":true}},
+    {"service":"lukode","types":["software_doc","api_spec","db_diagram"],"config":{"who_can_comment":"members","max_depth":1,"markdown":"rich","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":false}}},
+    {"service":"lugame","types":["game","level","ugc_level","replay","achievement"],"config":{"who_can_comment":"authenticated","max_depth":1,"markdown":"plain","moderation_mode":"first_comment","rate_limit":{"per_minute":2,"per_hour":30,"per_target_per_hour":15},"public_read":true}},
+    {"service":"lushoop","types":["product","shop","collection","promotion"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":true},"public_read":true}},
+    {"service":"lutriip","types":["place","trip","itinerary","activity"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":true},"public_read":true}},
+    {"service":"lukomik","types":["comic","chapter","joke"],"config":{"who_can_comment":"authenticated","max_depth":1,"markdown":"plain","moderation_mode":"post","public_read":true}},
+    {"service":"luxtory","types":["article","document","page"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"rich","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":false},"public_read":true}},
+    {"service":"lubo","types":["boardgame","scenario","ruleset","session","room"],"config":{"who_can_comment":"members","max_depth":2,"markdown":"basic","moderation_mode":"none"}},
+    {"service":"luprojet","types":["project","doc","update","task"],"config":{"who_can_comment":"members","max_depth":2,"markdown":"rich","moderation_mode":"none","attachments":{"enabled":true,"max_per_comment":3,"images_only":false}}},
+    {"service":"luservit","types":["service","provider","service_package"],"config":{"who_can_comment":"authenticated","max_depth":1,"markdown":"basic","moderation_mode":"post","public_read":true}},
+    {"service":"luwep","types":["page","post","block"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"pre","public_read":true}},
+    {"service":"lufoodi","types":["recipe","dish","ingredient"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":true},"public_read":true}},
+    {"service":"lutat","types":["task","submission"],"config":{"who_can_comment":"members","max_depth":1,"markdown":"plain","moderation_mode":"pre"}},
+    {"service":"luskool","types":["lesson","announcement","material","student_work"],"config":{"who_can_comment":"members","max_depth":1,"markdown":"basic","moderation_mode":"pre","sort_default":"oldest"}},
+    {"service":"lufami","types":["family_post","advent_day","calendar_event","person","give_item"],"config":{"who_can_comment":"members","max_depth":2,"markdown":"basic","moderation_mode":"none","attachments":{"enabled":true,"max_per_comment":3,"images_only":true}}}
+  ]
+}

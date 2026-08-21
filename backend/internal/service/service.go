@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -18,18 +20,22 @@ import (
 	"ludiskus/internal/markdown"
 	"ludiskus/internal/notify"
 	"ludiskus/internal/repository"
+	commentresolver "ludiskus/internal/resolver"
 	"ludiskus/internal/storage"
 )
 
 type Service struct {
-	repo   *repository.Repo
-	ident  *identity.Service
-	store  *storage.Store
-	lunoti *notify.Client
-	hipt   *hipt.Client
-	md     *markdown.Renderer
-	cfg    *config.Config
-	redis  *redis.Client
+	repo        *repository.Repo
+	ident       *identity.Service
+	store       *storage.Store
+	lunoti      *notify.Client
+	hipt        *hipt.Client
+	md          *markdown.Renderer
+	cfg         *config.Config
+	redis       *redis.Client
+	resolver    *commentresolver.Resolver
+	policyMu    sync.Mutex
+	policyCache map[string]cachedCommentPolicy
 
 	defaultBoards []seedBoard
 	bannedWords   []string
@@ -44,10 +50,13 @@ type seedBoard struct {
 }
 
 func New(repo *repository.Repo, ident *identity.Service, store *storage.Store, lunoti *notify.Client, md *markdown.Renderer, cfg *config.Config, rdb *redis.Client) *Service {
-	s := &Service{repo: repo, ident: ident, store: store, lunoti: lunoti, md: md, cfg: cfg, redis: rdb}
+	s := &Service{repo: repo, ident: ident, store: store, lunoti: lunoti, md: md, cfg: cfg, redis: rdb, policyCache: map[string]cachedCommentPolicy{}}
+	s.resolver = commentresolver.New(repo, rdb, cfg)
+	s.resolver.SetLocal(s.resolveLocalCommentResource)
 	// Tích hợp điểm hipt: dùng lại chính OAuth client HipCore của ludiskus.
 	s.hipt = hipt.New(cfg.LufamiURL, cfg.HipcoreURL, cfg.HipcoreClientID, cfg.HipcoreClientSecret)
 	s.loadSeeds()
+	_ = s.repo.ApplyCommentServiceClients(context.Background(), cfg.CommentServiceClients)
 	return s
 }
 
@@ -95,6 +104,24 @@ func (s *Service) loadSeeds() {
 		}
 		if json.Unmarshal(raw, &sf) == nil {
 			s.bannedWords = sf.BannedWords
+		}
+	}
+	if raw, err := db.Seeds.ReadFile("seeds/comment_policies.json"); err == nil {
+		var sf struct {
+			Policies []struct {
+				Service string          `json:"service"`
+				Types   []string        `json:"types"`
+				Config  json.RawMessage `json:"config"`
+			} `json:"policies"`
+		}
+		if json.Unmarshal(raw, &sf) == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			for _, p := range sf.Policies {
+				for _, typ := range p.Types {
+					_ = s.repo.UpsertCommentPolicy(ctx, p.Service, typ, p.Config, nil)
+				}
+			}
 		}
 	}
 }

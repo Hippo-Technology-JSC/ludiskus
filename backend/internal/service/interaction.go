@@ -12,6 +12,30 @@ import (
 func (s *Service) InteractionContext(
 	ctx context.Context, resourceType, resourceID string,
 ) (*domain.InteractionContext, error) {
+	if resourceType == "comment" {
+		comment, err := s.repo.GetComment(ctx, resourceID)
+		if err != nil {
+			return nil, err
+		}
+		target, err := s.repo.GetCommentTargetByID(ctx, comment.TargetID)
+		if err != nil {
+			return nil, err
+		}
+		state := interactionState(comment.Status)
+		owner := &domain.InteractionOwner{Type: "profile"}
+		if comment.AuthorProfileUUID != nil {
+			owner.ID = *comment.AuthorProfileUUID
+		} else if target.OwnerID != nil {
+			owner.ID = *target.OwnerID
+			if target.OwnerType != nil {
+				owner.Type = *target.OwnerType
+			}
+		}
+		return &domain.InteractionContext{Type: "comment", ID: comment.ID, Exists: true, Owner: owner,
+			SpaceUUID: target.SpaceUUID, Visibility: target.Visibility, State: state, Title: target.Title,
+			Summary: excerptOf(comment.BodyMD), ThumbnailURL: target.ThumbnailURL,
+			CanonicalPath: commentURL(target, comment.ID), Capabilities: json.RawMessage(`{}`)}, nil
+	}
 	var topic *domain.Topic
 	var post *domain.Post
 	var err error

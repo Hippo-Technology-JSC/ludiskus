@@ -11,10 +11,11 @@ import (
 )
 
 type PresignInput struct {
-	SpaceUUID   string `json:"spaceUuid"`
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-	SizeBytes   int64  `json:"sizeBytes"`
+	SpaceUUID   string              `json:"spaceUuid"`
+	ResourceRef *domain.ResourceRef `json:"resourceRef,omitempty"`
+	FileName    string              `json:"fileName"`
+	ContentType string              `json:"contentType"`
+	SizeBytes   int64               `json:"sizeBytes"`
 }
 
 type PresignResult struct {
@@ -28,12 +29,32 @@ func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in Pres
 	if s.store == nil {
 		return nil, fmt.Errorf("%w: đính kèm chưa được cấu hình", domain.ErrValidation)
 	}
-	forum, err := s.requireView(ctx, in.SpaceUUID, profileUUID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.requirePost(ctx, forum, profileUUID); err != nil {
-		return nil, err
+	var commentTarget *domain.CommentTarget
+	var err error
+	if in.ResourceRef != nil {
+		var p domain.CommentPolicy
+		var caps domain.CommentCapabilities
+		commentTarget, p, caps, err = s.ensureCommentable(ctx, *in.ResourceRef, profileUUID)
+		if err != nil {
+			return nil, err
+		}
+		if !caps.CanAttach {
+			return nil, domain.ErrCommentNotAllowed
+		}
+		if p.Attachments.ImagesOnly && !strings.HasPrefix(strings.ToLower(in.ContentType), "image/") {
+			return nil, fmt.Errorf("%w: chỉ cho phép tệp ảnh", domain.ErrValidation)
+		}
+		if commentTarget.SpaceUUID != nil {
+			in.SpaceUUID = *commentTarget.SpaceUUID
+		}
+	} else {
+		forum, e := s.requireView(ctx, in.SpaceUUID, profileUUID)
+		if e != nil {
+			return nil, e
+		}
+		if e = s.requirePost(ctx, forum, profileUUID); e != nil {
+			return nil, e
+		}
 	}
 	if in.FileName == "" {
 		return nil, fmt.Errorf("%w: fileName là bắt buộc", domain.ErrValidation)
@@ -49,8 +70,10 @@ func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in Pres
 		kind = "image"
 	}
 	now := time.Now().UTC()
-	objectKey := fmt.Sprintf("spaces/%s/%04d/%02d/%s/%s",
-		in.SpaceUUID, now.Year(), now.Month(), randSuffix(), safeName(in.FileName))
+	objectKey := fmt.Sprintf("spaces/%s/%04d/%02d/%s/%s", in.SpaceUUID, now.Year(), now.Month(), randSuffix(), safeName(in.FileName))
+	if commentTarget != nil {
+		objectKey = fmt.Sprintf("comments/%s/%04d/%02d/%s/%s", commentTarget.ID, now.Year(), now.Month(), randSuffix(), safeName(in.FileName))
+	}
 
 	att, err := s.repo.CreateAttachment(ctx, domain.Attachment{
 		SpaceUUID: in.SpaceUUID, UploaderProfileUUID: profileUUID, ObjectKey: objectKey,
@@ -76,10 +99,14 @@ func (s *Service) AttachmentURL(ctx context.Context, profileUUID, id string) (st
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.requireView(ctx, att.SpaceUUID, profileUUID); err != nil {
+	if att.CommentID != nil {
+		if _, _, err := s.GetComment(ctx, *att.CommentID, profileUUID); err != nil {
+			return "", err
+		}
+	} else if _, err := s.requireView(ctx, att.SpaceUUID, profileUUID); err != nil {
 		return "", err
 	}
-	if s.spaceIsPublic(ctx, att.SpaceUUID) {
+	if att.CommentID == nil && s.spaceIsPublic(ctx, att.SpaceUUID) {
 		return s.store.PublicURL(att.ObjectKey), nil
 	}
 	return s.store.PresignGet(ctx, att.ObjectKey, att.FileName)
@@ -90,7 +117,16 @@ func (s *Service) DeleteAttachment(ctx context.Context, profileUUID, id string) 
 	if err != nil {
 		return err
 	}
-	if att.UploaderProfileUUID != profileUUID && !canModerate(s.role(ctx, att.SpaceUUID, profileUUID)) {
+	canDelete := att.UploaderProfileUUID == profileUUID
+	if !canDelete && att.CommentID != nil {
+		if c, _, e := s.GetComment(ctx, *att.CommentID, profileUUID); e == nil {
+			canDelete = c.CanModerate
+		}
+	}
+	if !canDelete && att.CommentID == nil {
+		canDelete = canModerate(s.role(ctx, att.SpaceUUID, profileUUID))
+	}
+	if !canDelete {
 		return domain.ErrForbidden
 	}
 	if s.store != nil {

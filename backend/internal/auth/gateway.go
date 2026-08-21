@@ -20,6 +20,8 @@ type GatewayIdentity struct {
 	Email       string
 	Name        string
 	ProfileUUID string
+	IsSuper     bool
+	Audience    string
 }
 
 // Tên header gateway tiêm vào + tham số ký. PHẢI khớp tm/bff/src/identity.ts.
@@ -29,6 +31,8 @@ const (
 	gwHdrEmail    = "X-Gw-User-Email"
 	gwHdrName     = "X-Gw-User-Name"
 	gwHdrProfile  = "X-Gw-Profile-Uuid"
+	gwHdrIsSuper  = "X-Gw-Is-Super"
+	gwHdrAudience = "X-Gw-Audience"
 	gwHdrIssuedAt = "X-Gw-Issued-At"
 	gwHdrSig      = "X-Gw-Signature"
 
@@ -72,12 +76,19 @@ func verifyGateway(r *http.Request, secret string, ttl time.Duration) (*GatewayI
 		Email:       r.Header.Get(gwHdrEmail),
 		Name:        r.Header.Get(gwHdrName),
 		ProfileUUID: r.Header.Get(gwHdrProfile),
+		IsSuper:     r.Header.Get(gwHdrIsSuper) == "true",
+		Audience:    r.Header.Get(gwHdrAudience),
 	}
 	if id.Sub == "" {
 		return nil, false
 	}
 
-	canonical := strings.Join([]string{gwScheme, id.Sub, id.Email, id.Name, id.ProfileUUID, issuedAt}, "\n")
+	fields := []string{gwScheme, id.Sub, id.Email, id.Name, id.ProfileUUID}
+	if id.Audience != "" {
+		fields = append(fields, strconv.FormatBool(id.IsSuper), id.Audience)
+	}
+	fields = append(fields, issuedAt)
+	canonical := strings.Join(fields, "\n")
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(canonical))
 	expected := hex.EncodeToString(mac.Sum(nil))

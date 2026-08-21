@@ -90,6 +90,34 @@ func (c *Client) BackfillInteractions(ctx context.Context, batches any) error {
 		map[string]any{"data": batches}, nil)
 }
 
+type AggregateSync struct {
+	Ref struct {
+		Service string `json:"service"`
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+	} `json:"ref"`
+	Counts struct {
+		Like int64 `json:"like"`
+	} `json:"counts"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (c *Client) InteractionAggregates(ctx context.Context, updatedSince, cursor string) ([]AggregateSync, string, error) {
+	if !c.Enabled() {
+		return nil, "", nil
+	}
+	path := "/api/v1/s2s/interactions/aggregates?service=ludiskus&type=comment&limit=100&updatedSince=" + url.QueryEscape(updatedSince)
+	if cursor != "" {
+		path += "&cursor=" + url.QueryEscape(cursor)
+	}
+	var page struct {
+		Data       []AggregateSync `json:"data"`
+		NextCursor string          `json:"nextCursor"`
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &page)
+	return page.Data, page.NextCursor, err
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
 	token, err := c.accessToken(ctx)
 	if err != nil {

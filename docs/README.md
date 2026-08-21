@@ -29,6 +29,12 @@ trong app **tm** đi qua **BFF**.
 | 12 | [Triển khai Docker](12-trien-khai-docker.md) | compose, DB, OAuth client, bucket, biến môi trường |
 | 13 | [Lộ trình](13-lo-trinh.md) | Các giai đoạn triển khai |
 
+## Phân hệ
+
+| Phân hệ | Tài liệu | Nội dung |
+|---------|----------|----------|
+| **LuComment** | [docs/comment/](comment/README.md) | Bình luận **dùng chung cho toàn hệ sinh thái**: mọi service nhúng được một luồng bình luận dưới bất kỳ nội dung nào (`service:type:id`) mà không tạo bảng riêng và không tạo topic diễn đàn. Đã triển khai GĐ0–GĐ7; bộ 17 tài liệu giữ cả thiết kế, contract và trạng thái nghiệm thu. |
+
 ## Mục tiêu sử dụng
 
 ludiskus được thiết kế để phục vụ nhiều dạng cộng đồng trên cùng một mô hình:

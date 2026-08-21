@@ -37,6 +37,38 @@ func writeError(w http.ResponseWriter, log *slog.Logger, err error) {
 		code, status = "conflict", http.StatusConflict
 	case errors.Is(err, domain.ErrTooLarge):
 		code, status = "too_large", http.StatusRequestEntityTooLarge
+	case errors.Is(err, domain.ErrInvalidRef):
+		code, status = "INVALID_REF", http.StatusBadRequest
+	case errors.Is(err, domain.ErrInvalidCursor):
+		code, status = "INVALID_CURSOR", http.StatusBadRequest
+	case errors.Is(err, domain.ErrSortNotSupported):
+		code, status = "SORT_NOT_SUPPORTED", http.StatusBadRequest
+	case errors.Is(err, domain.ErrServiceNotRegistered):
+		code, status = "SERVICE_NOT_REGISTERED", http.StatusNotFound
+	case errors.Is(err, domain.ErrCommentDisabled):
+		code, status = "COMMENT_DISABLED", http.StatusForbidden
+	case errors.Is(err, domain.ErrCommentNotAllowed):
+		code, status = "COMMENT_NOT_ALLOWED", http.StatusForbidden
+	case errors.Is(err, domain.ErrResourceBlocked):
+		code, status = "RESOURCE_BLOCKED", http.StatusForbidden
+	case errors.Is(err, domain.ErrResourceGone):
+		code, status = "RESOURCE_GONE", http.StatusGone
+	case errors.Is(err, domain.ErrThreadLocked):
+		code, status = "THREAD_LOCKED", http.StatusLocked
+	case errors.Is(err, domain.ErrEditWindowClosed):
+		code, status = "EDIT_WINDOW_CLOSED", http.StatusForbidden
+	case errors.Is(err, domain.ErrDuplicateComment):
+		code, status = "DUPLICATE_COMMENT", http.StatusConflict
+	case errors.Is(err, domain.ErrRateLimited):
+		code, status = "RATE_LIMITED", http.StatusTooManyRequests
+	case errors.Is(err, domain.ErrResolverUnavailable):
+		code, status = "RESOURCE_RESOLVER_UNAVAILABLE", http.StatusServiceUnavailable
+	case errors.Is(err, domain.ErrResolverMissing):
+		code, status = "RESOURCE_RESOLVER_MISSING", http.StatusServiceUnavailable
+	case errors.Is(err, domain.ErrServiceScope):
+		code, status = "SERVICE_SCOPE_MISMATCH", http.StatusForbidden
+	case errors.Is(err, domain.ErrUnknownServiceClient):
+		code, status = "UNKNOWN_SERVICE_CLIENT", http.StatusForbidden
 	}
 	msg := err.Error()
 	if status == http.StatusInternalServerError {

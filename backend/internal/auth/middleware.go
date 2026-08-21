@@ -21,13 +21,25 @@ const (
 	userIDKey ctxKey = iota
 	tokenKey
 	profileKey
+	superuserKey
+	gatewayAudienceKey
 	serviceKey
+	serviceClientKey
 )
 
 func UserID(ctx context.Context) string      { v, _ := ctx.Value(userIDKey).(string); return v }
 func BearerToken(ctx context.Context) string { v, _ := ctx.Value(tokenKey).(string); return v }
 func ProfileUUID(ctx context.Context) string { v, _ := ctx.Value(profileKey).(string); return v }
-func IsService(ctx context.Context) bool     { v, _ := ctx.Value(serviceKey).(bool); return v }
+func IsSuperuser(ctx context.Context) bool   { v, _ := ctx.Value(superuserKey).(bool); return v }
+func GatewayAudience(ctx context.Context) string {
+	v, _ := ctx.Value(gatewayAudienceKey).(string)
+	return v
+}
+func IsService(ctx context.Context) bool { v, _ := ctx.Value(serviceKey).(bool); return v }
+func ServiceClientID(ctx context.Context) string {
+	v, _ := ctx.Value(serviceClientKey).(string)
+	return v
+}
 
 type Authenticator struct {
 	jwks       *JWKS
@@ -60,6 +72,14 @@ func NewAuthenticator(jwks *JWKS, audience, hipcoreURL string, log *slog.Logger)
 }
 
 func (a *Authenticator) parse(r *http.Request) (*jwt.Token, string, bool) {
+	return a.parseWithAudience(r, true)
+}
+
+func (a *Authenticator) parseService(r *http.Request) (*jwt.Token, string, bool) {
+	return a.parseWithAudience(r, false)
+}
+
+func (a *Authenticator) parseWithAudience(r *http.Request, enforceAudience bool) (*jwt.Token, string, bool) {
 	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if raw == "" || raw == r.Header.Get("Authorization") {
 		return nil, "", false
@@ -68,7 +88,7 @@ func (a *Authenticator) parse(r *http.Request) (*jwt.Token, string, bool) {
 		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512"}),
 		jwt.WithExpirationRequired(),
 	}
-	if a.audience != "" {
+	if enforceAudience && a.audience != "" {
 		opts = append(opts, jwt.WithAudience(a.audience))
 	}
 	token, err := jwt.Parse(raw, a.jwks.Keyfunc, opts...)
@@ -88,6 +108,8 @@ func (a *Authenticator) UserMiddleware(next http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), userIDKey, id.Sub)
 			ctx = context.WithValue(ctx, tokenKey, bearerRaw(r))
 			ctx = context.WithValue(ctx, profileKey, id.ProfileUUID)
+			ctx = context.WithValue(ctx, superuserKey, id.IsSuper)
+			ctx = context.WithValue(ctx, gatewayAudienceKey, id.Audience)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -109,17 +131,36 @@ func (a *Authenticator) UserMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// ServiceMiddleware: token client-credentials nội bộ — chỉ cần chữ ký + hạn
-// hợp lệ (không bắt buộc `sub`).
+// ServiceMiddleware chỉ chấp nhận client-credentials. HipCore Passport hiện
+// đặt sub bằng chính client id cho token máy (một số bản cũ để sub rỗng), nên
+// token hợp lệ khi sub rỗng hoặc trùng một audience. Token người dùng có sub
+// khác audience và bị chặn. Registry ở transport quyết định client nào được phép.
 func (a *Authenticator) ServiceMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, raw, ok := a.parse(r)
+		token, raw, ok := a.parseService(r)
 		if !ok {
 			unauthorized(w, "invalid service token")
 			return
 		}
+		sub, _ := token.Claims.GetSubject()
+		aud, err := token.Claims.GetAudience()
+		if err != nil || len(aud) == 0 || aud[0] == "" {
+			forbidden(w, "not_a_service_token", "Token service thiếu audience")
+			return
+		}
+		if sub != "" {
+			matchesClient := false
+			for _, clientID := range aud {
+				matchesClient = matchesClient || clientID == sub
+			}
+			if !matchesClient {
+				forbidden(w, "not_a_service_token", "Token người dùng không được gọi API service")
+				return
+			}
+		}
 		ctx := context.WithValue(r.Context(), serviceKey, true)
 		ctx = context.WithValue(ctx, tokenKey, raw)
+		ctx = context.WithValue(ctx, serviceClientKey, aud[0])
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -175,5 +216,13 @@ func unauthorized(w http.ResponseWriter, msg string) {
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{"code": "unauthorized", "message": msg},
+	})
+}
+
+func forbidden(w http.ResponseWriter, code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{"code": code, "message": msg},
 	})
 }

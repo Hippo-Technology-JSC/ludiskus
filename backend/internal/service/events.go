@@ -133,6 +133,37 @@ func (s *Service) notifyModerators(ctx context.Context, spaceUUID, itemID string
 	})
 }
 
+func (s *Service) notifyCommentPending(ctx context.Context, target *domain.CommentTarget, comment *domain.Comment) {
+	set := map[string]bool{}
+	if target.OwnerType != nil && *target.OwnerType == "profile" && target.OwnerID != nil {
+		set[*target.OwnerID] = true
+	}
+	if target.SpaceUUID != nil {
+		for _, profileUUID := range s.moderatorUUIDs(ctx, *target.SpaceUUID) {
+			set[profileUUID] = true
+		}
+	}
+	if comment.AuthorProfileUUID != nil {
+		delete(set, *comment.AuthorProfileUUID)
+	}
+	recipients := make([]notify.Recipient, 0, len(set))
+	for profileUUID := range set {
+		recipients = append(recipients, notify.Recipient{ProfileUUID: profileUUID})
+	}
+	if len(recipients) == 0 {
+		return
+	}
+	data, _ := json.Marshal(map[string]any{
+		"count": 1, "spaceName": target.Title, "url": "/ludiskus/c/" + comment.ID,
+	})
+	s.enqueueEvent(ctx, notify.Event{
+		EventType:      "ludiskus.comment.pending",
+		IdempotencyKey: ptr("comment-pending:" + comment.ID),
+		Data:           data,
+		Recipients:     recipients,
+	})
+}
+
 // notifyModerationDecided báo tác giả bài đã được duyệt/từ chối.
 func (s *Service) notifyModerationDecided(ctx context.Context, item *domain.ModerationItem, decision string, note *string) {
 	author, ok := s.targetAuthor(ctx, item.TargetType, item.TargetID)
@@ -143,13 +174,21 @@ func (s *Service) notifyModerationDecided(ctx context.Context, item *domain.Mode
 	if note != nil {
 		noteStr = *note
 	}
+	eventType := "ludiskus.moderation.decided"
+	url := fmt.Sprintf("/ludiskus/s/%s", item.SpaceUUID)
+	keyPrefix := "moddecided:"
+	if item.TargetType == "comment" {
+		eventType = "ludiskus.comment.moderated"
+		url = "/ludiskus/c/" + item.TargetID
+		keyPrefix = "comment-moderated:"
+	}
 	data, _ := json.Marshal(map[string]any{
 		"decision": decision, "note": noteStr,
-		"url": fmt.Sprintf("/ludiskus/s/%s", item.SpaceUUID),
+		"url": url,
 	})
 	s.enqueueEvent(ctx, notify.Event{
-		EventType:      "ludiskus.moderation.decided",
-		IdempotencyKey: ptr(fmt.Sprintf("moddecided:%s:%s", item.ID, item.State)),
+		EventType:      eventType,
+		IdempotencyKey: ptr(fmt.Sprintf("%s%s:%s", keyPrefix, item.ID, item.State)),
 		Data:           data,
 		Recipients:     []notify.Recipient{{ProfileUUID: author}},
 	})
@@ -189,6 +228,10 @@ func (s *Service) targetAuthor(ctx context.Context, targetType, targetID string)
 	case "post":
 		if p, err := s.repo.GetPost(ctx, targetID); err == nil {
 			return p.AuthorProfileUUID, true
+		}
+	case "comment":
+		if c, err := s.repo.GetComment(ctx, targetID); err == nil && c.AuthorProfileUUID != nil {
+			return *c.AuthorProfileUUID, true
 		}
 	}
 	return "", false

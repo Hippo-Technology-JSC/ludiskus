@@ -36,6 +36,45 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 		// --- Người dùng → ludiskus (Bearer user, qua BFF) ---
 		r.Group(func(r chi.Router) {
 			r.Use(authn.UserMiddleware)
+			r.Route("/comments", func(r chi.Router) {
+				r.Post("/summary", s.commentSummaryBatch)
+				r.Get("/inbox", s.commentInbox)
+				r.Get("/unread-count", s.commentUnreadCount)
+				r.Get("/mine", s.commentMine)
+				r.Route("/r/{service}/{type}/{id}", func(r chi.Router) {
+					r.Get("/", s.commentThread)
+					r.Get("/items", s.commentList)
+					r.Post("/items", s.commentCreate)
+					r.Get("/search", s.commentSearch)
+					r.Get("/mention-suggest", s.commentMentionSuggest)
+					r.Put("/subscription", s.commentSubscribe)
+					r.Delete("/subscription", s.commentUnsubscribe)
+					r.Post("/read", s.commentMarkRead)
+					r.Post("/{action}", s.commentThreadAction)
+				})
+				r.Route("/items/{id}", func(r chi.Router) {
+					r.Get("/", s.commentGet)
+					r.Patch("/", s.commentUpdate)
+					r.Delete("/", s.commentDelete)
+					r.Get("/replies", s.commentReplies)
+					r.Get("/revisions", s.commentRevisions)
+					r.Post("/report", s.commentReport)
+					r.Post("/{action}", s.commentItemAction)
+				})
+				r.Get("/moderation/queue", s.commentModerationQueue)
+				r.Post("/moderation/{item}/approve", s.commentApprove)
+				r.Post("/moderation/{item}/reject", s.commentReject)
+			})
+			r.Route("/comment-admin", func(r chi.Router) {
+				r.Get("/services", s.uiAdminCommentServices)
+				r.Post("/services", s.uiAdminUpsertCommentService)
+				r.Patch("/services/{code}", s.uiAdminUpsertCommentService)
+				r.Get("/policies", s.uiAdminCommentPolicies)
+				r.Put("/policies/{service}/{type}", s.uiAdminCommentPolicyPut)
+				r.Get("/abuse-flags", s.uiAdminCommentAbuseFlags)
+				r.Post("/abuse-flags/{id}", s.uiAdminDecideCommentAbuseFlag)
+				r.Post("/reconcile", s.uiAdminCommentReconcile)
+			})
 
 			// Space-forum
 			r.Get("/spaces", s.listSpaces)
@@ -99,12 +138,38 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			r.Post("/reports/{id}/dismiss", s.dismissReport)
 		})
 
+		r.Route("/public/comments", func(r chi.Router) {
+			r.Get("/r/{service}/{type}/{id}", s.publicCommentThread)
+			r.Get("/r/{service}/{type}/{id}/items", s.publicCommentList)
+			r.Get("/items/{id}/replies", s.publicCommentReplies)
+		})
+
 		// --- Service/admin → ludiskus (client-credentials) ---
 		r.Group(func(r chi.Router) {
 			r.Use(authn.ServiceMiddleware)
 			r.Post("/admin/cache/refresh", s.refreshCache)
 			r.Get("/s2s/interaction-context/{type}/{id}", s.interactionContext)
 			r.Post("/s2s/interaction-context:batch", s.batchInteractionContext)
+			r.Route("/s2s/comments", func(r chi.Router) {
+				r.Post("/targets", s.s2sCommentTargets)
+				r.Post("/targets/invalidate", s.s2sCommentInvalidate)
+				r.Post("/targets/settings", s.s2sCommentSettings)
+				r.Get("/counts", s.s2sCommentCounts)
+				r.Post("/items", s.s2sSystemComment)
+				r.Post("/{id}/moderate", s.s2sCommentModerate)
+				r.Get("/export", s.s2sCommentExport)
+			})
+			r.Route("/admin", func(r chi.Router) {
+				r.Get("/comment-services", s.adminCommentServices)
+				r.Post("/comment-services", s.adminUpsertCommentService)
+				r.Patch("/comment-services/{code}", s.adminUpsertCommentService)
+				r.Delete("/comment-services/{code}", s.adminDisableCommentService)
+				r.Get("/comment-policies", s.adminCommentPolicies)
+				r.Put("/comment-policies/{service}/{type}", s.adminCommentPolicyPut)
+				r.Get("/comments/abuse-flags", s.adminCommentAbuseFlags)
+				r.Post("/comments/abuse-flags/{id}", s.adminDecideCommentAbuseFlag)
+				r.Post("/comments/reconcile-counters", s.adminCommentReconcile)
+			})
 		})
 	})
 

@@ -164,6 +164,30 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 			s.afterPostPublished(ctx, p)
 			s.syncInteractionResource(ctx, interactionResourceType(p), p.ID)
 		}
+	case "comment":
+		pending, e := s.repo.GetComment(ctx, item.TargetID)
+		if e != nil {
+			return e
+		}
+		target, e := s.repo.GetCommentTargetByID(ctx, pending.TargetID)
+		if e != nil {
+			return e
+		}
+		policy, e := s.commentPolicy(ctx, target)
+		if e != nil {
+			return e
+		}
+		mentions, _ := s.repo.CommentMentions(ctx, pending.ID)
+		notifications := s.commentNotifyRows(ctx, target, pending, policy, mentions)
+		comment, e := s.repo.TransitionCommentWithNotify(ctx, item.TargetID, "published", profileUUID, "approved", notifications)
+		if e == nil {
+			if target != nil {
+				s.afterCommentPublished(ctx, target, comment, policy, mentions, true)
+				s.clearCommentCaches(ctx, target.Ref())
+			}
+			s.syncInteractionResource(ctx, "comment", comment.ID)
+			_ = s.repo.ResolveReportsForTarget(ctx, "comment", comment.ID, "dismissed")
+		}
 	}
 	s.notifyModerationDecided(ctx, item, "duyệt", nil)
 	return nil
@@ -182,6 +206,10 @@ func (s *Service) RejectModeration(ctx context.Context, itemID, profileUUID stri
 		return err
 	}
 	s.hideTarget(ctx, item.TargetType, item.TargetID)
+	if item.TargetType == "comment" {
+		_, _ = s.repo.TransitionComment(ctx, item.TargetID, "rejected", profileUUID, "rejected")
+		_ = s.repo.ResolveReportsForTarget(ctx, "comment", item.TargetID, "resolved")
+	}
 	s.notifyModerationDecided(ctx, item, "từ chối", note)
 	return nil
 }
@@ -199,6 +227,14 @@ func (s *Service) hideTarget(ctx context.Context, targetType, targetID string) {
 		p, _ := s.repo.GetPost(ctx, targetID)
 		if s.repo.SetPostStatus(ctx, targetID, domain.StatusHidden) == nil && p != nil {
 			s.invalidateInteractionResource(ctx, interactionResourceType(p), targetID, "visibility")
+		}
+	case "comment":
+		if c, err := s.repo.GetComment(ctx, targetID); err == nil {
+			if t, e := s.repo.GetCommentTargetByID(ctx, c.TargetID); e == nil {
+				_, _ = s.repo.TransitionComment(ctx, targetID, "hidden", "", "auto_hide")
+				s.clearCommentCaches(ctx, t.Ref())
+				s.invalidateInteractionResource(ctx, "comment", targetID, "visibility")
+			}
 		}
 	}
 }
@@ -218,6 +254,16 @@ func (s *Service) targetSpace(ctx context.Context, targetType, targetID string) 
 			return "", false, err
 		}
 		return p.SpaceUUID, true, nil
+	case "comment":
+		c, err := s.repo.GetComment(ctx, targetID)
+		if err != nil {
+			return "", false, err
+		}
+		t, err := s.repo.GetCommentTargetByID(ctx, c.TargetID)
+		if err != nil || t.SpaceUUID == nil {
+			return "", false, err
+		}
+		return *t.SpaceUUID, true, nil
 	}
 	return "", false, nil
 }
