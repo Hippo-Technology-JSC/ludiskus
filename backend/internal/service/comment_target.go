@@ -37,6 +37,18 @@ func (s *Service) ensureCommentTarget(ctx context.Context, ref domain.ResourceRe
 		return nil, domain.ErrServiceNotRegistered
 	}
 	if t, err := s.repo.GetCommentTarget(ctx, ref); err == nil {
+		if (t.State == "unverified" || t.Visibility == "private" || t.VerifiedAt == nil) && svc.VerifyMode != "trust" {
+			s.resolver.InvalidateCache(ctx, ref)
+			resolved, resolveErr := s.resolver.Resolve(ctx, ref)
+			if resolveErr == nil {
+				applyResolvedTarget(t, resolved)
+				now := time.Now()
+				t.VerifiedAt = &now
+				if out, err := s.repo.UpsertCommentTarget(ctx, *t); err == nil {
+					return out, nil
+				}
+			}
+		}
 		return t, nil
 	} else if !errors.Is(err, domain.ErrNotFound) {
 		return nil, err
@@ -81,6 +93,9 @@ func applyResolvedTarget(t *domain.CommentTarget, v *commentresolver.Result) {
 	if v.Owner != nil {
 		t.OwnerType = &v.Owner.Type
 		t.OwnerID = &v.Owner.ID
+	} else {
+		t.OwnerType = nil
+		t.OwnerID = nil
 	}
 }
 
