@@ -87,6 +87,7 @@ func run(log *slog.Logger) error {
 	go svc.RegisterHiptTasks(ctx)
 	go cacheSync(ctx, log, svc, cfg.ProfileSyncInterval)
 	go cleanup(ctx, log, svc)
+	go personalFileReconcile(ctx, log, svc)
 	if cfg.CommentEnabled {
 		go commentNotify(ctx, log, svc)
 		go commentVerify(ctx, log, svc)
@@ -103,7 +104,22 @@ func run(log *slog.Logger) error {
 			return nil
 		case <-ticker.C:
 			svc.ProcessInteractionBackfill(ctx, log)
+			svc.ProcessPersonalFileSync(ctx, log)
 			svc.ProcessOutbox(ctx, log)
+		}
+	}
+}
+
+func personalFileReconcile(ctx context.Context, log *slog.Logger, svc *service.Service) {
+	svc.ReconcilePersonalFiles(ctx, log)
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			svc.ReconcilePersonalFiles(ctx, log)
 		}
 	}
 }

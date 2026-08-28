@@ -19,23 +19,25 @@ import (
 	"ludiskus/internal/identity"
 	"ludiskus/internal/markdown"
 	"ludiskus/internal/notify"
+	"ludiskus/internal/personalfiles"
 	"ludiskus/internal/repository"
 	commentresolver "ludiskus/internal/resolver"
 	"ludiskus/internal/storage"
 )
 
 type Service struct {
-	repo        *repository.Repo
-	ident       *identity.Service
-	store       *storage.Store
-	lunoti      *notify.Client
-	hipt        *hipt.Client
-	md          *markdown.Renderer
-	cfg         *config.Config
-	redis       *redis.Client
-	resolver    *commentresolver.Resolver
-	policyMu    sync.Mutex
-	policyCache map[string]cachedCommentPolicy
+	repo          *repository.Repo
+	ident         *identity.Service
+	store         *storage.Store
+	lunoti        *notify.Client
+	hipt          *hipt.Client
+	md            *markdown.Renderer
+	cfg           *config.Config
+	redis         *redis.Client
+	resolver      *commentresolver.Resolver
+	personalFiles *personalfiles.Client
+	policyMu      sync.Mutex
+	policyCache   map[string]cachedCommentPolicy
 
 	defaultBoards []seedBoard
 	bannedWords   []string
@@ -53,6 +55,7 @@ func New(repo *repository.Repo, ident *identity.Service, store *storage.Store, l
 	s := &Service{repo: repo, ident: ident, store: store, lunoti: lunoti, md: md, cfg: cfg, redis: rdb, policyCache: map[string]cachedCommentPolicy{}}
 	s.resolver = commentresolver.New(repo, rdb, cfg)
 	s.resolver.SetLocal(s.resolveLocalCommentResource)
+	s.personalFiles = personalfiles.New(cfg)
 	// Tích hợp điểm hipt: dùng lại chính OAuth client HipCore của ludiskus.
 	s.hipt = hipt.New(cfg.LufamiURL, cfg.HipcoreURL, cfg.HipcoreClientID, cfg.HipcoreClientSecret)
 	s.loadSeeds()

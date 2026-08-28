@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -432,9 +433,23 @@ func (r *Repo) AttachToPost(ctx context.Context, ids []string, postID, spaceUUID
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := r.pool.Exec(ctx, `UPDATE attachments SET post_id = $2, status = 'attached'
-		WHERE id = ANY($1) AND space_uuid = $3 AND status = 'pending'`, ids, postID, spaceUUID)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE attachments SET post_id = $2, status = 'attached'
+		WHERE id = ANY($1::uuid[]) AND space_uuid = $3 AND status = 'pending'`, ids, postID, spaceUUID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != int64(len(ids)) {
+		return fmt.Errorf("%w: đính kèm không hợp lệ", domain.ErrValidation)
+	}
+	if err := enqueueAttachedPersonalFiles(ctx, tx, ids); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repo) AttachmentsForPosts(ctx context.Context, postIDs []string) (map[string][]domain.Attachment, error) {
@@ -503,8 +518,24 @@ func (r *Repo) ListOrphanAttachments(ctx context.Context, ttlSeconds, limit int)
 }
 
 func (r *Repo) DeleteAttachment(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM attachments WHERE id = $1`, id)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO personal_file_sync_outbox(idempotency_key,source_file_id,event_type,payload)
+		SELECT 'delete:'||a.id::text||':'||extract(epoch from now())::bigint,a.id::text,'file.deleted',jsonb_build_object(
+		'eventId','ludiskus-attachment-delete:'||a.id::text||':'||extract(epoch from now())::bigint,'type','file.deleted','occurredAt',now(),
+		'sourceFileId',a.id::text,'sourceRevision',extract(epoch from now())::bigint::text,'ownerUserId',pc.user_id::text,
+		'uploadedByProfileUuid',a.uploader_profile_uuid::text,'file',jsonb_build_object('name',a.file_name,'mimeType',a.content_type,'sizeBytes',a.size_bytes,'mediaKind','other','uploadedAt',a.created_at))
+		FROM attachments a JOIN profile_cache pc ON pc.profile_uuid=a.uploader_profile_uuid WHERE a.id=$1 AND pc.user_id IS NOT NULL`, id)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM attachments WHERE id=$1`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // --- subscriptions ----------------------------------------------------------

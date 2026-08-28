@@ -39,6 +39,43 @@ func (s *Service) ProcessOutbox(ctx context.Context, log *slog.Logger) {
 	}
 }
 
+func (s *Service) ProcessPersonalFileSync(ctx context.Context, log *slog.Logger) {
+	if s.personalFiles == nil || !s.personalFiles.Enabled() {
+		return
+	}
+	items, err := s.repo.ClaimPersonalFileSync(ctx, 50)
+	if err != nil {
+		log.Error("claim personal file sync", "err", err)
+		return
+	}
+	if len(items) == 0 {
+		return
+	}
+	if err := s.personalFiles.Send(ctx, items); err != nil {
+		_ = s.repo.MarkPersonalFileSyncFailed(ctx, items, err.Error())
+		log.Warn("sync attachments to personal files", "count", len(items), "err", err)
+		return
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	if err := s.repo.MarkPersonalFileSyncSent(ctx, ids); err != nil {
+		log.Error("mark personal file sync sent", "err", err)
+	}
+}
+
+func (s *Service) ReconcilePersonalFiles(ctx context.Context, log *slog.Logger) {
+	n, err := s.repo.EnqueueAttachedPersonalFiles(ctx, 500)
+	if err != nil {
+		log.Error("reconcile personal files", "err", err)
+		return
+	}
+	if n > 0 {
+		log.Info("queued attachment personal file backfill", "count", n)
+	}
+}
+
 // SyncCaches full-sync profile_cache + space_cache từ HipCore (docs/05 §5.3).
 func (s *Service) SyncCaches(ctx context.Context, log *slog.Logger) {
 	if !s.ident.Enabled() {

@@ -134,6 +134,9 @@ func (r *Repo) InsertComment(ctx context.Context, in InsertCommentInput) (*domai
 		if tag.RowsAffected() != int64(len(in.AttachmentIDs)) {
 			return nil, false, fmt.Errorf("%w: đính kèm không hợp lệ", domain.ErrValidation)
 		}
+		if err = enqueueAttachedPersonalFiles(ctx, tx, in.AttachmentIDs); err != nil {
+			return nil, false, err
+		}
 	}
 	if out.Status == domain.CommentPending || in.ModerationSource != "" {
 		source := in.ModerationSource

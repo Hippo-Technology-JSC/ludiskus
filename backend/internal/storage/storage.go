@@ -6,9 +6,14 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -103,4 +108,46 @@ func (s *Store) Stat(ctx context.Context, objectKey string) (size int64, content
 
 func (s *Store) Remove(ctx context.Context, objectKey string) error {
 	return s.internal.RemoveObject(ctx, s.cfg.S3Bucket, objectKey, minio.RemoveObjectOptions{})
+}
+
+func (s *Store) ImportURL(ctx context.Context, sourceURL, objectKey, contentType string, expectedSize int64, expectedChecksum *string) error {
+	u, err := url.Parse(sourceURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return fmt.Errorf("URL nguồn không hợp lệ")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 2 * time.Minute}
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("nguồn trả status %d", res.StatusCode)
+	}
+	hash := sha256.New()
+	reader := io.TeeReader(io.LimitReader(res.Body, expectedSize+1), hash)
+	info, err := s.internal.PutObject(ctx, s.cfg.S3Bucket, objectKey, reader, expectedSize, minio.PutObjectOptions{ContentType: contentType})
+	if err != nil {
+		return err
+	}
+	if info.Size != expectedSize {
+		_ = s.Remove(ctx, objectKey)
+		return fmt.Errorf("kích thước tệp nguồn không khớp")
+	}
+	if expectedChecksum != nil && *expectedChecksum != "" && !strings.EqualFold(*expectedChecksum, hex.EncodeToString(hash.Sum(nil))) {
+		_ = s.Remove(ctx, objectKey)
+		return fmt.Errorf("checksum tệp nguồn không khớp")
+	}
+	return nil
+}
+
+func (s *Store) Copy(ctx context.Context, sourceKey, targetKey string) error {
+	_, err := s.internal.CopyObject(ctx,
+		minio.CopyDestOptions{Bucket: s.cfg.S3Bucket, Object: targetKey},
+		minio.CopySrcOptions{Bucket: s.cfg.S3Bucket, Object: sourceKey})
+	return err
 }

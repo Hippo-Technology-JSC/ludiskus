@@ -13,11 +13,13 @@ import (
 // --- topics -----------------------------------------------------------------
 
 type TopicInput struct {
-	Title         string   `json:"title"`
-	Type          string   `json:"type"`
-	BodyMD        string   `json:"bodyMd"`
-	Tags          []string `json:"tags"`
-	AttachmentIDs []string `json:"attachmentIds"`
+	Title                   string   `json:"title"`
+	Type                    string   `json:"type"`
+	BodyMD                  string   `json:"bodyMd"`
+	Tags                    []string `json:"tags"`
+	AttachmentIDs           []string `json:"attachmentIds"`
+	PersonalSelectionToken  string   `json:"personalSelectionToken,omitempty"`
+	SelectionIdempotencyKey string   `json:"selectionIdempotencyKey,omitempty"`
 }
 
 // CreateTopic tạo chủ đề + post đầu, áp kiểm duyệt, gắn tag/đính kèm, phát thông
@@ -42,6 +44,16 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 	}
 	if !validTopicType(in.Type) {
 		in.Type = forum.DefaultTopicType
+	}
+	if strings.TrimSpace(in.PersonalSelectionToken) != "" {
+		imported, err := s.ImportPersonalFileSelection(ctx, profileUUID, board.SpaceUUID, in.PersonalSelectionToken, "topic-attachment", in.SelectionIdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		in.AttachmentIDs = append(in.AttachmentIDs, imported...)
+	}
+	if len(in.AttachmentIDs) > s.cfg.MaxAttachments {
+		return nil, fmt.Errorf("%w: vượt số lượng đính kèm tối đa", domain.ErrValidation)
 	}
 
 	role := s.role(ctx, board.SpaceUUID, profileUUID)

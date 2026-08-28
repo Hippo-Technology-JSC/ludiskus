@@ -57,3 +57,14 @@ cùng prefix để hiển thị nhẹ.
 - Validate `space_uuid` của attachment khớp Post khi gắn (chống gắn chéo Space).
 - Trần dung lượng theo Space (tuỳ chọn `settings.storage_quota_mb`) để chống lạm
   dụng; worker tổng hợp dung lượng đã dùng.
+# Chọn lại tệp từ Personal Files
+
+Màn hình tạo topic có thể dùng shared `PersonalFilePicker` thay cho upload mới.
+Frontend chỉ gửi selection token và idempotency key; không gửi object key/URL.
+LuDiskus redeem token bằng OAuth service:
+
+- source `ludiskus`: nhận native reference rồi copy object trong cùng bucket;
+- source khác: stream từ URL TTL ngắn do Lufami resolve;
+- mọi bản copy kiểm size/checksum, tạo attachment `pending`, sau đó complete
+  selection;
+- `personal_file_imports` giữ idempotency nên retry không tạo attachment đôi.
