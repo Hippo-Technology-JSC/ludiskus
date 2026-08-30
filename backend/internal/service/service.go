@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"ludiskus/db"
+	"ludiskus/internal/auth"
 	"ludiskus/internal/config"
 	"ludiskus/internal/domain"
 	"ludiskus/internal/hipt"
@@ -161,9 +163,15 @@ func (s *Service) role(ctx context.Context, spaceUUID, profileUUID string) strin
 	if profileUUID == "" {
 		return ""
 	}
+	if auth.IsSuperuser(ctx) {
+		return domain.RoleOwner
+	}
 	role := s.ident.Role(ctx, spaceUUID, profileUUID)
 	if role == domain.RoleOwner || role == domain.RoleAdmin {
 		return role
+	}
+	if sp, err := s.ident.Space(ctx, spaceUUID); err == nil && sp.CreatorProfileUUID != nil && *sp.CreatorProfileUUID == profileUUID {
+		return domain.RoleOwner
 	}
 	if mod, _ := s.repo.IsModerator(ctx, spaceUUID, profileUUID); mod {
 		return domain.RoleModerator
@@ -224,7 +232,31 @@ func (s *Service) requireModerate(ctx context.Context, spaceUUID, profileUUID st
 // --- forum (bật/cấu hình) ---------------------------------------------------
 
 func (s *Service) GetForum(ctx context.Context, spaceUUID, profileUUID string) (*domain.SpaceForum, error) {
-	return s.requireView(ctx, spaceUUID, profileUUID)
+	forum, err := s.repo.GetForum(ctx, spaceUUID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			sp, serr := s.ident.Space(ctx, spaceUUID)
+			if serr != nil {
+				return nil, serr
+			}
+			return &domain.SpaceForum{
+				SpaceUUID: spaceUUID,
+				Enabled:   false,
+				IsPublic:  sp.IsPublic,
+			}, nil
+		}
+		return nil, err
+	}
+	if !forum.Enabled {
+		return forum, nil
+	}
+	if forum.IsPublic {
+		return forum, nil
+	}
+	if s.role(ctx, spaceUUID, profileUUID) == "" {
+		return nil, domain.ErrForbidden
+	}
+	return forum, nil
 }
 
 // EnableForum bật forum cho Space (owner/admin), seed board mặc định.

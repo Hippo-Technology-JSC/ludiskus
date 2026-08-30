@@ -67,7 +67,7 @@ func (r *Repo) CreateTopicWithPost(ctx context.Context, t domain.Topic, p domain
 func (r *Repo) GetTopic(ctx context.Context, id string) (*domain.Topic, error) {
 	var t domain.Topic
 	err := scanTopic(r.pool.QueryRow(ctx, `SELECT `+topicCols+` FROM topics WHERE id = $1`, id), &t)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &t, err
@@ -77,7 +77,7 @@ func (r *Repo) GetTopicBySlug(ctx context.Context, spaceUUID, slug string) (*dom
 	var t domain.Topic
 	err := scanTopic(r.pool.QueryRow(ctx, `SELECT `+topicCols+` FROM topics
 		WHERE space_uuid = $1 AND slug = $2`, spaceUUID, slug), &t)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &t, err
@@ -103,6 +103,26 @@ func (r *Repo) ListTopics(ctx context.Context, boardID, sort string, limit, offs
 	}
 	rows, err := r.pool.Query(ctx, `SELECT `+topicColsT+` FROM topics t
 		WHERE `+where+` ORDER BY `+order+` LIMIT $2 OFFSET $3`, boardID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	return collectTopics(rows)
+}
+
+// ListSpaceTopics liệt kê topic published trong toàn bộ Space theo sort.
+func (r *Repo) ListSpaceTopics(ctx context.Context, spaceUUID, sort string, limit, offset int) ([]domain.Topic, error) {
+	order := "t.is_pinned DESC, t.last_post_at DESC NULLS LAST"
+	where := "t.space_uuid = $1 AND t.status = 'published'"
+	switch sort {
+	case "top":
+		order = "t.is_pinned DESC, t.reply_count DESC, t.view_count DESC, t.last_post_at DESC NULLS LAST"
+	case "unanswered":
+		where += " AND t.reply_count = 0"
+	case "created":
+		order = "t.created_at DESC"
+	}
+	rows, err := r.pool.Query(ctx, `SELECT `+topicColsT+` FROM topics t
+		WHERE `+where+` ORDER BY `+order+` LIMIT $2 OFFSET $3`, spaceUUID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +248,7 @@ func (r *Repo) HasPublishedPostInSpace(ctx context.Context, spaceUUID, profileUU
 func (r *Repo) GetPost(ctx context.Context, id string) (*domain.Post, error) {
 	var p domain.Post
 	err := scanPost(r.pool.QueryRow(ctx, `SELECT `+postCols+` FROM posts WHERE id = $1`, id), &p)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &p, err
@@ -238,7 +258,7 @@ func (r *Repo) FirstPost(ctx context.Context, topicID string) (*domain.Post, err
 	var p domain.Post
 	err := scanPost(r.pool.QueryRow(ctx, `SELECT `+postCols+` FROM posts
 		WHERE topic_id = $1 AND is_first ORDER BY created_at LIMIT 1`, topicID), &p)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &p, err
@@ -422,7 +442,7 @@ func (r *Repo) CreateAttachment(ctx context.Context, a domain.Attachment) (*doma
 func (r *Repo) GetAttachment(ctx context.Context, id string) (*domain.Attachment, error) {
 	var a domain.Attachment
 	err := scanAttachment(r.pool.QueryRow(ctx, `SELECT `+attCols+` FROM attachments WHERE id = $1`, id), &a)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &a, err

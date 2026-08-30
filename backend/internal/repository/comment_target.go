@@ -123,7 +123,7 @@ func (r *Repo) GetCommentTarget(ctx context.Context, ref domain.ResourceRef) (*d
 func (r *Repo) GetCommentTargetByID(ctx context.Context, id string) (*domain.CommentTarget, error) {
 	var t domain.CommentTarget
 	err := scanCommentTarget(r.pool.QueryRow(ctx, `SELECT `+commentTargetCols+` FROM comment_targets WHERE id=$1`, id), &t)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &t, err

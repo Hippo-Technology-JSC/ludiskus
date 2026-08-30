@@ -105,7 +105,7 @@ func (r *Repo) CreateCommentModerationItem(ctx context.Context, spaceUUID *strin
 func (r *Repo) GetModerationItem(ctx context.Context, id string) (*domain.ModerationItem, error) {
 	var m domain.ModerationItem
 	err := scanModItem(r.pool.QueryRow(ctx, `SELECT `+modCols+` FROM moderation_items WHERE id = $1`, id), &m)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &m, err
@@ -139,7 +139,7 @@ func (r *Repo) DecideModerationItem(ctx context.Context, id, state, decidedBy st
 		UPDATE moderation_items SET state = $2::mod_state, decided_by = $3, decided_at = now(), note = $4
 		WHERE id = $1 AND state = 'pending' RETURNING `+modCols,
 		id, state, decidedBy, note), &m)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &m, err

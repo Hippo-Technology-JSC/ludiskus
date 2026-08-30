@@ -57,6 +57,7 @@ type Authenticator struct {
 
 type meEntry struct {
 	profileUUID string
+	isSuper     bool
 	expiresAt   time.Time
 }
 
@@ -123,10 +124,11 @@ func (a *Authenticator) UserMiddleware(next http.Handler) http.Handler {
 			unauthorized(w, "token has no subject")
 			return
 		}
-		profileUUID := a.activeProfile(r.Context(), sub, raw)
+		profileUUID, isSuper := a.activeProfile(r.Context(), sub, raw)
 		ctx := context.WithValue(r.Context(), userIDKey, sub)
 		ctx = context.WithValue(ctx, tokenKey, raw)
 		ctx = context.WithValue(ctx, profileKey, profileUUID)
+		ctx = context.WithValue(ctx, superuserKey, isSuper)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -167,48 +169,53 @@ func (a *Authenticator) ServiceMiddleware(next http.Handler) http.Handler {
 
 // activeProfile giải uuid hồ sơ đang hoạt động qua HipCore /api/me (cache TTL
 // ngắn theo sub). Thất bại trả "" — handler báo lỗi nếu cần profile.
-func (a *Authenticator) activeProfile(ctx context.Context, sub, token string) string {
+func (a *Authenticator) activeProfile(ctx context.Context, sub, token string) (string, bool) {
 	a.mu.Lock()
 	if e, ok := a.meCache[sub]; ok && time.Now().Before(e.expiresAt) {
 		a.mu.Unlock()
-		return e.profileUUID
+		return e.profileUUID, e.isSuper
 	}
 	a.mu.Unlock()
 
-	uuid := a.fetchActiveProfile(ctx, token)
+	uuid, isSuper := a.fetchActiveProfile(ctx, token)
 	if uuid != "" {
 		a.mu.Lock()
-		a.meCache[sub] = meEntry{profileUUID: uuid, expiresAt: time.Now().Add(60 * time.Second)}
+		a.meCache[sub] = meEntry{profileUUID: uuid, isSuper: isSuper, expiresAt: time.Now().Add(60 * time.Second)}
 		a.mu.Unlock()
 	}
-	return uuid
+	return uuid, isSuper
 }
 
-func (a *Authenticator) fetchActiveProfile(ctx context.Context, token string) string {
+func (a *Authenticator) fetchActiveProfile(ctx context.Context, token string) (string, bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.hipcoreURL+"/api/me", nil)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	res, err := a.client.Do(req)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return ""
+		return "", false
 	}
 	var body struct {
+		User struct {
+			IsSuper     bool `json:"is_super"`
+			IsSuperuser bool `json:"is_superuser"`
+		} `json:"user"`
 		ActiveProfile struct {
 			UUID string `json:"uuid"`
 		} `json:"active_profile"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
-		return ""
+		return "", false
 	}
-	return body.ActiveProfile.UUID
+	isSuper := body.User.IsSuper || body.User.IsSuperuser
+	return body.ActiveProfile.UUID, isSuper
 }
 
 func unauthorized(w http.ResponseWriter, msg string) {

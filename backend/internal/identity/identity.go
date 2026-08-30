@@ -202,7 +202,7 @@ func (s *Service) SyncMembers(ctx context.Context, spaceUUID string) ([]domain.C
 	if !s.Enabled() {
 		return nil, fmt.Errorf("hipcore client chưa cấu hình")
 	}
-	raw, status, err := s.get(ctx, "/api/spaces/"+url.PathEscape(spaceUUID)+"/members")
+	raw, status, err := s.get(ctx, "/api/spaces/"+url.PathEscape(spaceUUID)+"/members?per_page=1000")
 	if err != nil {
 		return nil, err
 	}

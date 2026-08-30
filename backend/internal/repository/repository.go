@@ -25,6 +25,14 @@ func isUnique(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+func isNotFound(err error) bool {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "22P02"
+}
+
 func nullJSON(b []byte) []byte {
 	if len(b) == 0 {
 		return nil
@@ -46,7 +54,7 @@ func (r *Repo) GetCachedProfile(ctx context.Context, uuid string) (*domain.Cache
 	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at
 		FROM profile_cache WHERE profile_uuid = $1`, uuid).
 		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &p, err
@@ -57,7 +65,7 @@ func (r *Repo) GetCachedProfileByCode(ctx context.Context, code string) (*domain
 	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at
 		FROM profile_cache WHERE lower(code) = lower($1) LIMIT 1`, code).
 		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &p, err
@@ -65,13 +73,16 @@ func (r *Repo) GetCachedProfileByCode(ctx context.Context, code string) (*domain
 
 func (r *Repo) UpsertCachedProfile(ctx context.Context, p domain.CachedProfile) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO profile_cache (profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+		INSERT INTO profile_cache (profile_uuid, user_id, code, name, avatar, is_active, synced_at)
+		VALUES ($1, $2, $3, $4, $5, $6, now())
 		ON CONFLICT (profile_uuid) DO UPDATE SET
-			user_id = EXCLUDED.user_id, code = EXCLUDED.code, name = EXCLUDED.name,
-			avatar = EXCLUDED.avatar, is_active = EXCLUDED.is_active,
-			created_at = COALESCE(EXCLUDED.created_at, profile_cache.created_at), synced_at = now()`,
-		p.ProfileUUID, p.UserID, p.Code, p.Name, p.Avatar, p.IsActive, p.CreatedAt)
+			user_id = EXCLUDED.user_id,
+			code = EXCLUDED.code,
+			name = EXCLUDED.name,
+			avatar = EXCLUDED.avatar,
+			is_active = EXCLUDED.is_active,
+			synced_at = now()`,
+		p.ProfileUUID, p.UserID, p.Code, p.Name, p.Avatar, p.IsActive)
 	return err
 }
 
@@ -83,7 +94,7 @@ func (r *Repo) GetCachedSpace(ctx context.Context, uuid string) (*domain.CachedS
 		creator_profile_uuid, space_type, synced_at FROM space_cache WHERE space_uuid = $1`, uuid).
 		Scan(&s.SpaceUUID, &s.Code, &s.Name, &s.IsPublic, &s.IsActive,
 			&s.CreatorProfileUUID, &s.SpaceType, &s.SyncedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &s, err
@@ -195,7 +206,7 @@ func scanForum(row pgx.Row, f *domain.SpaceForum) error {
 func (r *Repo) GetForum(ctx context.Context, spaceUUID string) (*domain.SpaceForum, error) {
 	var f domain.SpaceForum
 	err := scanForum(r.pool.QueryRow(ctx, `SELECT `+forumCols+` FROM space_forums WHERE space_uuid = $1`, spaceUUID), &f)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &f, err
@@ -290,7 +301,7 @@ func (r *Repo) ListBoards(ctx context.Context, spaceUUID string) ([]domain.Board
 func (r *Repo) GetBoard(ctx context.Context, id string) (*domain.Board, error) {
 	var b domain.Board
 	err := scanBoard(r.pool.QueryRow(ctx, `SELECT `+boardCols+` FROM boards WHERE id = $1`, id), &b)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &b, err

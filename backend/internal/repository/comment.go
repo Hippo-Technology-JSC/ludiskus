@@ -164,7 +164,7 @@ func (r *Repo) InsertComment(ctx context.Context, in InsertCommentInput) (*domai
 func (r *Repo) GetComment(ctx context.Context, id string) (*domain.Comment, error) {
 	var c domain.Comment
 	err := scanComment(r.pool.QueryRow(ctx, `SELECT `+commentCols+` FROM comments WHERE id=$1`, id), &c)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if isNotFound(err) {
 		return nil, domain.ErrNotFound
 	}
 	return &c, err

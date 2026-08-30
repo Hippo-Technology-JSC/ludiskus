@@ -84,6 +84,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Patch("/settings", s.updateForumSettings)
 				r.Get("/boards", s.listBoards)
 				r.Post("/boards", s.createBoard)
+				r.Get("/topics", s.listSpaceTopics)
 				r.Get("/tags", s.listTags)
 				r.Get("/moderators", s.listModerators)
 				r.Post("/moderators", s.addModerator)

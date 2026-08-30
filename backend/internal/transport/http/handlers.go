@@ -140,6 +140,17 @@ func (s *Server) deleteBoard(w http.ResponseWriter, r *http.Request) {
 
 // --- topics -----------------------------------------------------------------
 
+func (s *Server) listSpaceTopics(w http.ResponseWriter, r *http.Request) {
+	limit, offset := pageParams(r)
+	items, err := s.svc.ListSpaceTopics(r.Context(), chi.URLParam(r, "space"), s.me(r),
+		r.URL.Query().Get("sort"), limit, offset)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list(items))
+}
+
 func (s *Server) listTopics(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)
 	items, err := s.svc.ListTopics(r.Context(), chi.URLParam(r, "id"), s.me(r),

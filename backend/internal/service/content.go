@@ -147,6 +147,22 @@ func (s *Service) ListTopics(ctx context.Context, boardID, profileUUID, sort str
 	return topics, nil
 }
 
+func (s *Service) ListSpaceTopics(ctx context.Context, spaceUUID, profileUUID, sort string, limit, offset int) ([]domain.Topic, error) {
+	if _, err := s.requireView(ctx, spaceUUID, profileUUID); err != nil {
+		return nil, err
+	}
+	topics, err := s.repo.ListSpaceTopics(ctx, spaceUUID, sort, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	ptrs := make([]*domain.Topic, len(topics))
+	for i := range topics {
+		ptrs[i] = &topics[i]
+	}
+	s.enrichTopics(ctx, ptrs)
+	return topics, nil
+}
+
 func (s *Service) UpdateTopic(ctx context.Context, topicID, profileUUID, title string) (*domain.Topic, error) {
 	t, err := s.repo.GetTopic(ctx, topicID)
 	if err != nil {
