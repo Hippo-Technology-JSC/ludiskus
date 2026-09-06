@@ -123,6 +123,10 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			// Tìm kiếm
 			r.Get("/search", s.search)
 
+			// LuSpotlight: cùng nhóm auth NGƯỜI DÙNG với /search, cố ý KHÔNG
+			// nằm trong nhóm /s2s bên dưới (lufami/docs/luspotlight.md §8.1).
+			r.Post("/s2s/search", s.s2sSearch)
+
 			// Theo dõi
 			r.Get("/subscriptions", s.listSubscriptions)
 			r.Put("/subscriptions", s.subscribe)

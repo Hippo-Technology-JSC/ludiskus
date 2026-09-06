@@ -1,3 +1,24 @@
+## 2026-09-05
+
+### Added
+- **Provider tìm kiếm cho LuSpotlight**: `POST /api/v1/s2s/search`
+  ([`internal/transport/http/s2s_search.go`](backend/internal/transport/http/s2s_search.go)).
+  Trả topic đã lọc quyền, kèm `ts_headline` làm đoạn trích và **thứ hạng nội bộ**
+  (không gửi `ts_rank` thô — điểm của hai service khác nhau không cùng đơn vị).
+  Chi phí thực tế: một handler, vì `Service.Search` đã lọc theo `viewableSpaces`
+  của chính người dùng.
+
+### Ghi chú thiết kế
+- Route này nằm dưới **middleware auth người dùng bình thường**, cố ý KHÔNG nằm
+  trong nhóm `/s2s` dùng `requireService`. Lời gọi chạy thay mặt **người dùng**
+  (lufami chuyển tiếp bearer của họ), không thay mặt lufami. Nếu nó nằm dưới
+  `requireService` thì ludiskus chỉ biết "có một service gọi tôi" và buộc phải
+  tin một `profile_uuid` nào đó trong body — tức là bất kỳ ai giữ một token
+  service đều đọc được thảo luận riêng tư của mọi người. Xem
+  [`lufami/docs/luspotlight.md`](../lufami/docs/luspotlight.md) §7.1, §8.1.
+
+---
+
 ## 2026-08-21
 
 ### Added
