@@ -87,6 +87,7 @@ func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in Pres
 	}
 	putURL, err := s.store.PresignPut(ctx, objectKey)
 	if err != nil {
+		_ = s.repo.DeleteAttachment(ctx, att.ID)
 		return nil, err
 	}
 	return &PresignResult{AttachmentID: att.ID, UploadURL: putURL, ObjectKey: objectKey}, nil

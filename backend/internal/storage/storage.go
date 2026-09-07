@@ -33,6 +33,7 @@ func newClient(endpoint, accessKey, secretKey string) (*minio.Client, error) {
 	return minio.New(host, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
 		Secure: secure,
+		Region: "us-east-1",
 	})
 }
 
@@ -60,7 +61,7 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 		return err
 	}
 	if !exists {
-		return s.internal.MakeBucket(ctx, s.cfg.S3Bucket, minio.MakeBucketOptions{})
+		return s.internal.MakeBucket(ctx, s.cfg.S3Bucket, minio.MakeBucketOptions{Region: "us-east-1"})
 	}
 	return nil
 }
@@ -74,7 +75,11 @@ func (s *Store) Ready(ctx context.Context) error {
 func (s *Store) PresignPut(ctx context.Context, objectKey string) (string, error) {
 	u, err := s.public.PresignedPutObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL)
 	if err != nil {
-		return "", err
+		uInternal, errInternal := s.internal.PresignedPutObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL)
+		if errInternal != nil {
+			return "", err
+		}
+		return s.replacePublicEndpoint(uInternal.String()), nil
 	}
 	return u.String(), nil
 }
@@ -87,9 +92,30 @@ func (s *Store) PresignGet(ctx context.Context, objectKey, fileName string) (str
 	}
 	u, err := s.public.PresignedGetObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL, reqParams)
 	if err != nil {
-		return "", err
+		uInternal, errInternal := s.internal.PresignedGetObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL, reqParams)
+		if errInternal != nil {
+			return "", err
+		}
+		return s.replacePublicEndpoint(uInternal.String()), nil
 	}
 	return u.String(), nil
+}
+
+func (s *Store) replacePublicEndpoint(rawURL string) string {
+	if s.cfg.S3PublicEndpoint == "" || s.cfg.S3PublicEndpoint == s.cfg.S3Endpoint {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	pub, err := url.Parse(s.cfg.S3PublicEndpoint)
+	if err != nil {
+		return rawURL
+	}
+	u.Scheme = pub.Scheme
+	u.Host = pub.Host
+	return u.String()
 }
 
 // PublicURL URL không ký (Space công khai).
