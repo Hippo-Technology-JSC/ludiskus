@@ -37,10 +37,28 @@ func (r *Repo) CreateCommentReport(ctx context.Context, spaceUUID *string, comme
 	return err == nil && tag.RowsAffected() > 0, err
 }
 
-func (r *Repo) ListOpenReports(ctx context.Context, spaceUUID string, limit int) ([]domain.Report, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id, space_uuid, target_type, target_id,
-		reporter_profile_uuid, reason, note, status, created_at FROM reports
-		WHERE space_uuid = $1 AND status = 'open' ORDER BY created_at DESC LIMIT $2`, spaceUUID, limit)
+func (r *Repo) ListOpenReports(ctx context.Context, spaceUUID string, boardIDs []string, limit int) ([]domain.Report, error) {
+	var rows pgx.Rows
+	var err error
+
+	if boardIDs != nil {
+		if len(boardIDs) == 0 {
+			return []domain.Report{}, nil
+		}
+		rows, err = r.pool.Query(ctx, `SELECT r.id, r.space_uuid, r.target_type, r.target_id,
+			r.reporter_profile_uuid, r.reason, r.note, r.status, r.created_at FROM reports r
+			WHERE r.space_uuid = $1 AND r.status = 'open'
+			  AND (
+				(r.target_type = 'topic' AND r.target_id IN (SELECT id FROM topics WHERE board_id = ANY($2::uuid[])))
+				OR
+				(r.target_type = 'post' AND r.target_id IN (SELECT p.id FROM posts p JOIN topics t ON p.topic_id = t.id WHERE t.board_id = ANY($2::uuid[])))
+			  )
+			ORDER BY r.created_at DESC LIMIT $3`, spaceUUID, boardIDs, limit)
+	} else {
+		rows, err = r.pool.Query(ctx, `SELECT id, space_uuid, target_type, target_id,
+			reporter_profile_uuid, reason, note, status, created_at FROM reports
+			WHERE space_uuid = $1 AND status = 'open' ORDER BY created_at DESC LIMIT $2`, spaceUUID, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +73,36 @@ func (r *Repo) ListOpenReports(ctx context.Context, spaceUUID string, limit int)
 		out = append(out, rep)
 	}
 	return out, rows.Err()
+}
+
+// TargetBoardID trả board_id của target (topic/post). Trả rỗng nếu không thuộc board nào (vd: comment).
+func (r *Repo) TargetBoardID(ctx context.Context, targetType, targetID string) (string, error) {
+	var boardID string
+	var err error
+	switch targetType {
+	case "topic":
+		err = r.pool.QueryRow(ctx, `SELECT board_id FROM topics WHERE id = $1`, targetID).Scan(&boardID)
+	case "post":
+		err = r.pool.QueryRow(ctx, `SELECT t.board_id FROM posts p JOIN topics t ON p.topic_id = t.id WHERE p.id = $1`, targetID).Scan(&boardID)
+	default:
+		return "", nil
+	}
+	if isNotFound(err) {
+		return "", domain.ErrNotFound
+	}
+	return boardID, err
+}
+
+func (r *Repo) GetReport(ctx context.Context, id string) (*domain.Report, error) {
+	var rep domain.Report
+	err := r.pool.QueryRow(ctx, `SELECT id, space_uuid, target_type, target_id,
+		reporter_profile_uuid, reason, note, status, created_at FROM reports
+		WHERE id = $1`, id).Scan(&rep.ID, &rep.SpaceUUID, &rep.TargetType, &rep.TargetID,
+		&rep.ReporterProfileUUID, &rep.Reason, &rep.Note, &rep.Status, &rep.CreatedAt)
+	if isNotFound(err) {
+		return nil, domain.ErrNotFound
+	}
+	return &rep, err
 }
 
 func (r *Repo) SetReportStatus(ctx context.Context, id, status string) error {
@@ -115,13 +163,29 @@ func (r *Repo) GetModerationItem(ctx context.Context, id string) (*domain.Modera
 	return &m, err
 }
 
-func (r *Repo) ListModerationQueue(ctx context.Context, spaceUUID, state string, limit int) ([]domain.ModerationItem, error) {
+func (r *Repo) ListModerationQueue(ctx context.Context, spaceUUID, state string, boardIDs []string, limit int) ([]domain.ModerationItem, error) {
 	if state == "" {
 		state = "pending"
 	}
-	rows, err := r.pool.Query(ctx, `SELECT `+modCols+` FROM moderation_items
-		WHERE space_uuid = $1 AND state = $2::mod_state ORDER BY created_at LIMIT $3`,
-		spaceUUID, state, limit)
+	var rows pgx.Rows
+	var err error
+	if boardIDs != nil {
+		if len(boardIDs) == 0 {
+			return []domain.ModerationItem{}, nil
+		}
+		rows, err = r.pool.Query(ctx, `SELECT `+modCols+` FROM moderation_items m
+			WHERE m.space_uuid = $1 AND m.state = $2::mod_state
+			  AND (
+				m.target_type = 'comment'
+				OR (m.target_type = 'topic' AND m.target_id IN (SELECT id FROM topics WHERE board_id = ANY($3::uuid[])))
+				OR (m.target_type = 'post' AND m.target_id IN (SELECT p.id FROM posts p JOIN topics t ON p.topic_id = t.id WHERE t.board_id = ANY($3::uuid[])))
+			  )
+			ORDER BY m.created_at LIMIT $4`, spaceUUID, state, boardIDs, limit)
+	} else {
+		rows, err = r.pool.Query(ctx, `SELECT `+modCols+` FROM moderation_items
+			WHERE space_uuid = $1 AND state = $2::mod_state ORDER BY created_at LIMIT $3`,
+			spaceUUID, state, limit)
+	}
 	if err != nil {
 		return nil, err
 	}

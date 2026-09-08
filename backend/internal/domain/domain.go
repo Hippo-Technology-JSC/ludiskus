@@ -65,25 +65,67 @@ type SpaceForum struct {
 	UpdatedAt               time.Time       `json:"updatedAt"`
 }
 
+// Chính sách phân quyền Board (§16).
+const (
+	BoardPermInheritSpace = "inherit_space"
+	BoardPermMembers      = "members"
+	BoardPermModerators   = "moderators"
+	BoardPermAdmins       = "admins"
+	BoardPermSelected     = "selected"
+	BoardPermNobody       = "nobody"
+)
+
+const (
+	BoardActionCreateTopic = "create_topic"
+	BoardActionReply       = "reply"
+)
+
+// BoardPolicyConfig cấu hình policy cho 1 action (create_topic / reply).
+type BoardPolicyConfig struct {
+	Mode         string   `json:"mode"`
+	ProfileUUIDs []string `json:"profileUuids"`
+}
+
+// BoardPermissionDetail chứa toàn bộ cấu hình ACL và moderator của Board.
+type BoardPermissionDetail struct {
+	BoardID                         string            `json:"boardId"`
+	Version                         int64             `json:"version"`
+	TopicPolicy                     BoardPolicyConfig `json:"topicPolicy"`
+	ReplyPolicy                     BoardPolicyConfig `json:"replyPolicy"`
+	ModeratorProfileUUIDs           []string          `json:"moderatorProfileUuids"`
+	InheritedModeratorProfileUUIDs []string          `json:"inheritedModeratorProfileUuids,omitempty"`
+}
+
+// BoardCapabilities thể hiện quyền hiệu lực của người dùng hiện tại trên Board.
+type BoardCapabilities struct {
+	Version              int64             `json:"version"`
+	CanCreateTopic       bool              `json:"canCreateTopic"`
+	CanReply             bool              `json:"canReply"`
+	CanModerate          bool              `json:"canModerate"`
+	CanManagePermissions bool              `json:"canManagePermissions"`
+	Reasons              map[string]string `json:"reasons,omitempty"`
+}
+
 // --- Board ------------------------------------------------------------------
 
 type Board struct {
-	ID              string     `json:"id"`
-	SpaceUUID       string     `json:"spaceUuid"`
-	ParentID        *string    `json:"parentId,omitempty"`
-	Code            string     `json:"code"`
-	Name            string     `json:"name"`
-	DescriptionMD   *string    `json:"descriptionMd,omitempty"`
-	DescriptionHTML *string    `json:"descriptionHtml,omitempty"`
-	Kind            string     `json:"kind"`
-	Position        int        `json:"position"`
-	IsLocked        bool       `json:"isLocked"`
-	MinRole         string     `json:"minRole"`
-	TopicCount      int        `json:"topicCount"`
-	PostCount       int        `json:"postCount"`
-	LastActivityAt  *time.Time `json:"lastActivityAt,omitempty"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	ID              string             `json:"id"`
+	SpaceUUID       string             `json:"spaceUuid"`
+	ParentID        *string            `json:"parentId,omitempty"`
+	Code            string             `json:"code"`
+	Name            string             `json:"name"`
+	DescriptionMD   *string            `json:"descriptionMd,omitempty"`
+	DescriptionHTML *string            `json:"descriptionHtml,omitempty"`
+	Kind            string             `json:"kind"`
+	Position        int                `json:"position"`
+	IsLocked        bool               `json:"isLocked"`
+	MinRole         string             `json:"minRole"`
+	TopicCount      int                `json:"topicCount"`
+	PostCount       int                `json:"postCount"`
+	LastActivityAt  *time.Time         `json:"lastActivityAt,omitempty"`
+	CreatedAt       time.Time          `json:"createdAt"`
+	UpdatedAt       time.Time          `json:"updatedAt"`
+	Capabilities    *BoardCapabilities `json:"capabilities,omitempty"`
 }
 
 // --- Topic ------------------------------------------------------------------

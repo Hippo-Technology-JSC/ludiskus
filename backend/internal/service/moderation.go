@@ -22,11 +22,11 @@ func matchesBanned(body string, banned []string) bool {
 }
 
 // decideStatus quyết định trạng thái nội dung mới theo chế độ kiểm duyệt của
-// Space (docs/04 §4.1). Trả (status, modSource) — modSource != "" nghĩa là tạo
+// Space (docs/04 §4.1, docs/16 §16.3). Trả (status, modSource) — modSource != "" nghĩa là tạo
 // ModerationItem.
-func (s *Service) decideStatus(ctx context.Context, forum *domain.SpaceForum, authorProfileUUID, role, body string) (string, string, error) {
-	// Staff bỏ qua mọi kiểm duyệt.
-	if canModerate(role) {
+func (s *Service) decideStatus(ctx context.Context, forum *domain.SpaceForum, boardID, authorProfileUUID, role, body string) (string, string, error) {
+	// Staff Space hoặc Moderator hiệu lực của Board bỏ qua mọi kiểm duyệt (§16.3).
+	if canModerate(role) || (boardID != "" && s.canModerateBoard(ctx, boardID, authorProfileUUID)) {
 		return domain.StatusPublished, "", nil
 	}
 	banned := matchesBanned(body, forum.BannedWords)
@@ -104,37 +104,56 @@ func (s *Service) ReportTarget(ctx context.Context, profileUUID, targetType, tar
 	return nil
 }
 
-func (s *Service) ListReports(ctx context.Context, spaceUUID, profileUUID string, limit int) ([]domain.Report, error) {
-	if err := s.requireModerate(ctx, spaceUUID, profileUUID); err != nil {
+func (s *Service) ListReports(ctx context.Context, spaceUUID, profileUUID, boardFilter string, limit int) ([]domain.Report, error) {
+	allowedBoards, err := s.allowedModerationBoards(ctx, spaceUUID, profileUUID, boardFilter)
+	if err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		limit = 50
 	}
-	return s.repo.ListOpenReports(ctx, spaceUUID, limit)
+	return s.repo.ListOpenReports(ctx, spaceUUID, allowedBoards, limit)
 }
 
 func (s *Service) ResolveReport(ctx context.Context, reportID, profileUUID, status string) error {
-	// status: resolved | dismissed (quyền moderate kiểm gián tiếp qua space khi cần).
+	// status: resolved | dismissed
 	if status != "resolved" && status != "dismissed" {
 		return domain.ErrValidation
+	}
+	rep, err := s.repo.GetReport(ctx, reportID)
+	if err != nil {
+		return err
+	}
+	boardID, err := s.repo.TargetBoardID(ctx, rep.TargetType, rep.TargetID)
+	if err != nil {
+		return err
+	}
+	if boardID != "" {
+		if !s.canModerateBoard(ctx, boardID, profileUUID) {
+			return domain.ErrForbidden
+		}
+	} else {
+		if err := s.requireModerate(ctx, rep.SpaceUUID, profileUUID); err != nil {
+			return err
+		}
 	}
 	return s.repo.SetReportStatus(ctx, reportID, status)
 }
 
 // --- moderation queue -------------------------------------------------------
 
-func (s *Service) ListModerationQueue(ctx context.Context, spaceUUID, profileUUID, state string, limit int) ([]domain.ModerationItem, error) {
-	if err := s.requireModerate(ctx, spaceUUID, profileUUID); err != nil {
+func (s *Service) ListModerationQueue(ctx context.Context, spaceUUID, profileUUID, state, boardFilter string, limit int) ([]domain.ModerationItem, error) {
+	allowedBoards, err := s.allowedModerationBoards(ctx, spaceUUID, profileUUID, boardFilter)
+	if err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		limit = 50
 	}
-	return s.repo.ListModerationQueue(ctx, spaceUUID, state, limit)
+	return s.repo.ListModerationQueue(ctx, spaceUUID, state, allowedBoards, limit)
 }
 
-// ApproveModeration duyệt → publish target (docs/04 §4.4).
+// ApproveModeration duyệt → publish target (docs/04 §4.4, docs/16 §16.5).
 func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID string) error {
 	item, err := s.repo.GetModerationItem(ctx, itemID)
 	if err != nil {
@@ -143,8 +162,18 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 	if item.TargetType == "comment" {
 		return s.decideCommentModeration(ctx, item, profileUUID, true, nil)
 	}
-	if err := s.requireModerate(ctx, item.SpaceUUID, profileUUID); err != nil {
+	boardID, err := s.repo.TargetBoardID(ctx, item.TargetType, item.TargetID)
+	if err != nil {
 		return err
+	}
+	if boardID != "" {
+		if !s.canModerateBoard(ctx, boardID, profileUUID) {
+			return domain.ErrForbidden
+		}
+	} else {
+		if err := s.requireModerate(ctx, item.SpaceUUID, profileUUID); err != nil {
+			return err
+		}
 	}
 	if _, err := s.repo.DecideModerationItem(ctx, itemID, "approved", profileUUID, nil); err != nil {
 		return err
@@ -199,7 +228,7 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 	return nil
 }
 
-// RejectModeration từ chối → ẩn target.
+// RejectModeration từ chối → ẩn target (docs/04 §4.4, docs/16 §16.5).
 func (s *Service) RejectModeration(ctx context.Context, itemID, profileUUID string, note *string) error {
 	item, err := s.repo.GetModerationItem(ctx, itemID)
 	if err != nil {
@@ -208,8 +237,18 @@ func (s *Service) RejectModeration(ctx context.Context, itemID, profileUUID stri
 	if item.TargetType == "comment" {
 		return s.decideCommentModeration(ctx, item, profileUUID, false, note)
 	}
-	if err := s.requireModerate(ctx, item.SpaceUUID, profileUUID); err != nil {
+	boardID, err := s.repo.TargetBoardID(ctx, item.TargetType, item.TargetID)
+	if err != nil {
 		return err
+	}
+	if boardID != "" {
+		if !s.canModerateBoard(ctx, boardID, profileUUID) {
+			return domain.ErrForbidden
+		}
+	} else {
+		if err := s.requireModerate(ctx, item.SpaceUUID, profileUUID); err != nil {
+			return err
+		}
 	}
 	if _, err := s.repo.DecideModerationItem(ctx, itemID, "rejected", profileUUID, note); err != nil {
 		return err

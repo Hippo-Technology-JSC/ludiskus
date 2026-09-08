@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"ludiskus/internal/auth"
 	"ludiskus/internal/service"
@@ -136,6 +137,38 @@ func (s *Server) deleteBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) getBoardPermissions(w http.ResponseWriter, r *http.Request) {
+	out, err := s.svc.GetBoardPermissions(r.Context(), chi.URLParam(r, "id"), s.me(r))
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dataResp(out))
+}
+
+func (s *Server) updateBoardPermissions(w http.ResponseWriter, r *http.Request) {
+	var in service.UpdateBoardPermissionsInput
+	if !decode(w, r, &in) {
+		return
+	}
+	reqID := middleware.GetReqID(r.Context())
+	out, err := s.svc.UpdateBoardPermissions(r.Context(), chi.URLParam(r, "id"), s.me(r), reqID, in)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dataResp(out))
+}
+
+func (s *Server) getBoardCapabilities(w http.ResponseWriter, r *http.Request) {
+	caps, err := s.svc.GetBoardCapabilities(r.Context(), chi.URLParam(r, "id"), s.me(r))
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dataResp(caps))
 }
 
 // --- topics -----------------------------------------------------------------
@@ -385,7 +418,7 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request, targetType strin
 
 func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
 	limit, _ := pageParams(r)
-	items, err := s.svc.ListReports(r.Context(), chi.URLParam(r, "space"), s.me(r), limit)
+	items, err := s.svc.ListReports(r.Context(), chi.URLParam(r, "space"), s.me(r), r.URL.Query().Get("board"), limit)
 	if err != nil {
 		writeError(w, s.log, err)
 		return
@@ -412,7 +445,7 @@ func (s *Server) dismissReport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) moderationQueue(w http.ResponseWriter, r *http.Request) {
 	limit, _ := pageParams(r)
 	items, err := s.svc.ListModerationQueue(r.Context(), chi.URLParam(r, "space"), s.me(r),
-		r.URL.Query().Get("state"), limit)
+		r.URL.Query().Get("state"), r.URL.Query().Get("board"), limit)
 	if err != nil {
 		writeError(w, s.log, err)
 		return

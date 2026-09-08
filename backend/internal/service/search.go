@@ -61,7 +61,11 @@ func (s *Service) Search(ctx context.Context, profileUUID string, in SearchInput
 		if in.SpaceUUID == "" {
 			return nil, domain.ErrForbidden
 		}
-		if err := s.requireModerate(ctx, in.SpaceUUID, profileUUID); err != nil {
+		if in.BoardID != "" {
+			if !s.canModerateBoard(ctx, in.BoardID, profileUUID) {
+				return nil, domain.ErrForbidden
+			}
+		} else if err := s.requireModerate(ctx, in.SpaceUUID, profileUUID); err != nil {
 			return nil, err
 		}
 	}

@@ -57,8 +57,27 @@ func (r *Repo) ForumMetrics(ctx context.Context) (map[string]int64, error) {
 	return map[string]int64{"topics": topics, "posts": posts, "moderation_pending": pending, "outbox_pending": queued, "outbox_failed": failed}, err
 }
 
-func (r *Repo) ListForumQueue(ctx context.Context, space string, limit, offset int) ([]domain.ModerationItem, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+modCols+` FROM moderation_items WHERE space_uuid=$1 AND state='pending' AND target_type IN ('topic','post') ORDER BY created_at,id LIMIT $2 OFFSET $3`, space, limit, offset)
+func (r *Repo) ListForumQueue(ctx context.Context, space string, boardIDs []string, limit, offset int) ([]domain.ModerationItem, error) {
+	var rows pgx.Rows
+	var err error
+
+	if boardIDs != nil {
+		if len(boardIDs) == 0 {
+			return []domain.ModerationItem{}, nil
+		}
+		rows, err = r.pool.Query(ctx, `SELECT `+modCols+` FROM moderation_items m
+			WHERE m.space_uuid = $1 AND m.state = 'pending' AND m.target_type IN ('topic','post')
+			  AND (
+				(m.target_type = 'topic' AND m.target_id IN (SELECT id FROM topics WHERE board_id = ANY($2::uuid[])))
+				OR
+				(m.target_type = 'post' AND m.target_id IN (SELECT p.id FROM posts p JOIN topics t ON p.topic_id = t.id WHERE t.board_id = ANY($2::uuid[])))
+			  )
+			ORDER BY m.created_at, m.id LIMIT $3 OFFSET $4`, space, boardIDs, limit, offset)
+	} else {
+		rows, err = r.pool.Query(ctx, `SELECT `+modCols+` FROM moderation_items
+			WHERE space_uuid = $1 AND state = 'pending' AND target_type IN ('topic','post')
+			ORDER BY created_at, id LIMIT $2 OFFSET $3`, space, limit, offset)
+	}
 	if err != nil {
 		return nil, err
 	}

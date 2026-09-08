@@ -45,7 +45,7 @@ func (s *Server) forumCapabilities(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) forumQueue(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pageParams(r)
-	out, err := s.svc.ForumQueue(r.Context(), chi.URLParam(r, "space"), s.me(r), limit, offset)
+	out, err := s.svc.ForumQueue(r.Context(), chi.URLParam(r, "space"), s.me(r), r.URL.Query().Get("board"), limit, offset)
 	if err != nil {
 		writeError(w, s.log, err)
 		return

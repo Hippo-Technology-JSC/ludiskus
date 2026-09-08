@@ -23,7 +23,7 @@ type TopicInput struct {
 }
 
 // CreateTopic tạo chủ đề + post đầu, áp kiểm duyệt, gắn tag/đính kèm, phát thông
-// báo nếu published (docs/04, 08).
+// báo nếu published (docs/04, 08, 16).
 func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, in TopicInput) (*domain.Topic, error) {
 	board, err := s.repo.GetBoard(ctx, boardID)
 	if err != nil {
@@ -33,11 +33,12 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requirePost(ctx, forum, profileUUID); err != nil {
-		return nil, err
-	}
-	if board.IsLocked {
-		return nil, fmt.Errorf("%w: board đang khoá", domain.ErrForbidden)
+	canCreate, reason := s.canCreateTopicBoard(ctx, board, forum, profileUUID)
+	if !canCreate {
+		if reason == "board_locked" {
+			return nil, fmt.Errorf("%w: board đang khoá", domain.ErrForbidden)
+		}
+		return nil, fmt.Errorf("%w: %s", domain.ErrForbidden, reason)
 	}
 	if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.BodyMD) == "" {
 		return nil, fmt.Errorf("%w: title và bodyMd là bắt buộc", domain.ErrValidation)
@@ -60,7 +61,7 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 		return nil, err
 	}
 	role := s.role(ctx, board.SpaceUUID, profileUUID)
-	status, modSource, err := s.decideStatus(ctx, forum, profileUUID, role, in.Title+" "+in.BodyMD)
+	status, modSource, err := s.decideStatus(ctx, forum, board.ID, profileUUID, role, in.Title+" "+in.BodyMD)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +174,7 @@ func (s *Service) UpdateTopic(ctx context.Context, topicID, profileUUID, title s
 	if err != nil {
 		return nil, err
 	}
-	if t.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, t.SpaceUUID, profileUUID)) {
+	if t.AuthorProfileUUID != profileUUID && !s.canModerateBoard(ctx, t.BoardID, profileUUID) {
 		return nil, domain.ErrForbidden
 	}
 	if strings.TrimSpace(title) == "" {
@@ -195,7 +196,7 @@ func (s *Service) TopicAction(ctx context.Context, topicID, profileUUID, action 
 	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return err
 	}
-	mod := canModerate(s.role(ctx, t.SpaceUUID, profileUUID))
+	mod := s.canModerateBoard(ctx, t.BoardID, profileUUID)
 	owner := t.AuthorProfileUUID == profileUUID
 	switch action {
 	case "resolve", "reopen":
@@ -260,13 +261,17 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 	if err != nil {
 		return nil, err
 	}
-	if t.Status != domain.StatusPublished {
-		return nil, domain.ErrForbidden
+	b, err := s.repo.GetBoard(ctx, t.BoardID)
+	if err != nil {
+		return nil, err
 	}
-	if b, e := s.repo.GetBoard(ctx, t.BoardID); e != nil {
-		return nil, e
-	} else if b.IsLocked {
-		return nil, domain.ErrForbidden
+	forum, err := s.requireView(ctx, t.SpaceUUID, profileUUID)
+	if err != nil {
+		return nil, err
+	}
+	canReply, reason := s.canReplyBoard(ctx, t, b, forum, profileUUID)
+	if !canReply {
+		return nil, fmt.Errorf("%w: %s", domain.ErrForbidden, reason)
 	}
 	if in.ReplyToID != nil {
 		p, e := s.repo.GetPost(ctx, *in.ReplyToID)
@@ -280,19 +285,12 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 	if err := s.validateForumAttachments(ctx, t.SpaceUUID, profileUUID, in.AttachmentIDs); err != nil {
 		return nil, err
 	}
-	forum, err := s.requireView(ctx, t.SpaceUUID, profileUUID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.requirePost(ctx, forum, profileUUID); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(in.BodyMD) == "" {
 		return nil, fmt.Errorf("%w: bodyMd là bắt buộc", domain.ErrValidation)
 	}
 
 	role := s.role(ctx, t.SpaceUUID, profileUUID)
-	status, modSource, err := s.decideStatus(ctx, forum, profileUUID, role, in.BodyMD)
+	status, modSource, err := s.decideStatus(ctx, forum, t.BoardID, profileUUID, role, in.BodyMD)
 	if err != nil {
 		return nil, err
 	}
@@ -330,12 +328,12 @@ func (s *Service) ListPosts(ctx context.Context, topicID, profileUUID string, li
 	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return nil, err
 	}
-	posts, err := s.repo.ListPosts(ctx, topicID, profileUUID, canModerate(s.role(ctx, t.SpaceUUID, profileUUID)), limit, offset)
+	mod := s.canModerateBoard(ctx, t.BoardID, profileUUID)
+	posts, err := s.repo.ListPosts(ctx, topicID, profileUUID, mod, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	s.enrichPosts(ctx, t.SpaceUUID, posts)
-	mod := canModerate(s.role(ctx, t.SpaceUUID, profileUUID))
 	for i := range posts {
 		posts[i].CanEdit = posts[i].AuthorProfileUUID == profileUUID || mod
 		posts[i].CanDelete = posts[i].CanEdit
@@ -355,7 +353,7 @@ func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD st
 	if err = s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return nil, err
 	}
-	if p.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, p.SpaceUUID, profileUUID)) {
+	if p.AuthorProfileUUID != profileUUID && !s.canModerateBoard(ctx, t.BoardID, profileUUID) {
 		return nil, domain.ErrForbidden
 	}
 	if strings.TrimSpace(bodyMD) == "" {
@@ -381,7 +379,7 @@ func (s *Service) DeletePost(ctx context.Context, postID, profileUUID string) er
 	if err = s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return err
 	}
-	if p.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, p.SpaceUUID, profileUUID)) {
+	if p.AuthorProfileUUID != profileUUID && !s.canModerateBoard(ctx, t.BoardID, profileUUID) {
 		return domain.ErrForbidden
 	}
 	if err := s.repo.SetPostStatus(ctx, postID, domain.StatusDeleted); err != nil {
@@ -401,13 +399,13 @@ func (s *Service) MarkAnswer(ctx context.Context, postID, profileUUID string) er
 	if err != nil {
 		return err
 	}
-	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
+	if err = s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return err
 	}
 	if t.Type != "question" || p.IsFirst || p.Status != domain.StatusPublished {
 		return domain.ErrValidation
 	}
-	if t.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, t.SpaceUUID, profileUUID)) {
+	if t.AuthorProfileUUID != profileUUID && !s.canModerateBoard(ctx, t.BoardID, profileUUID) {
 		return domain.ErrForbidden
 	}
 	if err := s.repo.SetTopicAnswer(ctx, t.ID, postID); err != nil {

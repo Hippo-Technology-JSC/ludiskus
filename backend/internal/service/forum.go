@@ -16,19 +16,22 @@ func (s *Service) readableForumTopic(ctx context.Context, t *domain.Topic, profi
 	if t.Status == domain.StatusDeleted {
 		return domain.ErrNotFound
 	}
-	if t.Status != domain.StatusPublished && t.Status != domain.StatusLocked && t.AuthorProfileUUID != profile && !canModerate(s.role(ctx, t.SpaceUUID, profile)) {
+	if t.Status != domain.StatusPublished && t.Status != domain.StatusLocked && t.AuthorProfileUUID != profile && !s.canModerateBoard(ctx, t.BoardID, profile) {
 		return domain.ErrNotFound
 	}
 	return nil
 }
 func (s *Service) forumTopicCapabilities(ctx context.Context, t *domain.Topic, profile string) {
-	t.CanModerate = canModerate(s.role(ctx, t.SpaceUUID, profile))
+	t.CanModerate = s.canModerateBoard(ctx, t.BoardID, profile)
 	t.CanManage = t.CanModerate || t.AuthorProfileUUID == profile
-	f, err := s.requireView(ctx, t.SpaceUUID, profile)
-	t.CanReply = err == nil && t.Status == domain.StatusPublished && s.requirePost(ctx, f, profile) == nil
-	if b, err := s.repo.GetBoard(ctx, t.BoardID); err == nil {
+	b, err := s.repo.GetBoard(ctx, t.BoardID)
+	f, ferr := s.requireView(ctx, t.SpaceUUID, profile)
+	if err == nil && ferr == nil {
 		t.BoardKind = b.Kind
-		t.CanReply = t.CanReply && !b.IsLocked
+		canReply, _ := s.canReplyBoard(ctx, t, b, f, profile)
+		t.CanReply = canReply
+	} else {
+		t.CanReply = false
 	}
 }
 func (s *Service) AssignForumTopic(ctx context.Context, id, profile string, assignee *string) error {
@@ -39,8 +42,8 @@ func (s *Service) AssignForumTopic(ctx context.Context, id, profile string, assi
 	if err = s.readableForumTopic(ctx, t, profile); err != nil {
 		return err
 	}
-	if err = s.requireModerate(ctx, t.SpaceUUID, profile); err != nil {
-		return err
+	if !s.canModerateBoard(ctx, t.BoardID, profile) {
+		return domain.ErrForbidden
 	}
 	b, err := s.repo.GetBoard(ctx, t.BoardID)
 	if err != nil {
@@ -157,11 +160,12 @@ type ForumQueueItem struct {
 	PostID   string `json:"postId"`
 }
 
-func (s *Service) ForumQueue(ctx context.Context, space, profile string, limit, offset int) ([]ForumQueueItem, error) {
-	if err := s.requireModerate(ctx, space, profile); err != nil {
+func (s *Service) ForumQueue(ctx context.Context, space, profile, boardFilter string, limit, offset int) ([]ForumQueueItem, error) {
+	allowedBoards, err := s.allowedModerationBoards(ctx, space, profile, boardFilter)
+	if err != nil {
 		return nil, err
 	}
-	rows, err := s.repo.ListForumQueue(ctx, space, limit, offset)
+	rows, err := s.repo.ListForumQueue(ctx, space, allowedBoards, limit, offset)
 	if err != nil {
 		return nil, err
 	}

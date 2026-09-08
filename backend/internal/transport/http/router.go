@@ -117,6 +117,9 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			r.Route("/boards/{id}", func(r chi.Router) {
 				r.Patch("/", s.updateBoard)
 				r.Delete("/", s.deleteBoard)
+				r.Get("/permissions", s.getBoardPermissions)
+				r.Put("/permissions", s.updateBoardPermissions)
+				r.Get("/capabilities", s.getBoardCapabilities)
 				r.Get("/topics", s.listTopics)
 				r.Post("/topics", s.createTopic)
 			})

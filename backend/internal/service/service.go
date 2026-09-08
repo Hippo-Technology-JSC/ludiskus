@@ -373,7 +373,15 @@ func (s *Service) ListBoards(ctx context.Context, spaceUUID, profileUUID string)
 	if _, err := s.requireView(ctx, spaceUUID, profileUUID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListBoards(ctx, spaceUUID)
+	boards, err := s.repo.ListBoards(ctx, spaceUUID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range boards {
+		caps, _ := s.GetBoardCapabilities(ctx, boards[i].ID, profileUUID)
+		boards[i].Capabilities = caps
+	}
+	return boards, nil
 }
 
 type BoardInput struct {
@@ -384,7 +392,7 @@ type BoardInput struct {
 	Kind          string  `json:"kind"`
 	Position      int     `json:"position"`
 	IsLocked      bool    `json:"isLocked"`
-	MinRole       string  `json:"minRole"`
+	MinRole       *string `json:"minRole"`
 }
 
 func (s *Service) CreateBoard(ctx context.Context, spaceUUID, profileUUID string, in BoardInput) (*domain.Board, error) {
@@ -392,25 +400,31 @@ func (s *Service) CreateBoard(ctx context.Context, spaceUUID, profileUUID string
 	if role != domain.RoleOwner && role != domain.RoleAdmin {
 		return nil, domain.ErrForbidden
 	}
+	if in.MinRole != nil && *in.MinRole != "" {
+		return nil, fmt.Errorf("%w: trường min_role đã bị vô hiệu hoá, vui lòng sử dụng API /boards/{id}/permissions để cấu hình quyền chuyên mục", domain.ErrValidation)
+	}
 	if strings.TrimSpace(in.Code) == "" || strings.TrimSpace(in.Name) == "" {
 		return nil, fmt.Errorf("%w: code và name là bắt buộc", domain.ErrValidation)
 	}
 	if !validBoardKind(in.Kind) {
 		in.Kind = "forum"
 	}
-	if in.MinRole == "" {
-		in.MinRole = domain.RoleMember
-	}
 	html := s.md.Render(in.DescriptionMD)
 	b := domain.Board{
 		SpaceUUID: spaceUUID, ParentID: in.ParentID, Code: in.Code, Name: in.Name,
-		Kind: in.Kind, Position: in.Position, IsLocked: in.IsLocked, MinRole: in.MinRole,
+		Kind: in.Kind, Position: in.Position, IsLocked: in.IsLocked, MinRole: domain.RoleMember,
 	}
 	if in.DescriptionMD != "" {
 		b.DescriptionMD = &in.DescriptionMD
 		b.DescriptionHTML = &html
 	}
-	return s.repo.CreateBoard(ctx, b)
+	created, err := s.repo.CreateBoard(ctx, b)
+	if err != nil {
+		return nil, err
+	}
+	caps, _ := s.GetBoardCapabilities(ctx, created.ID, profileUUID)
+	created.Capabilities = caps
+	return created, nil
 }
 
 type BoardPatchInput struct {
@@ -430,6 +444,9 @@ func (s *Service) UpdateBoard(ctx context.Context, boardID, profileUUID string, 
 	if role != domain.RoleOwner && role != domain.RoleAdmin {
 		return nil, domain.ErrForbidden
 	}
+	if in.MinRole != nil {
+		return nil, fmt.Errorf("%w: trường min_role đã bị vô hiệu hoá, vui lòng sử dụng API /boards/{id}/permissions để cấu hình quyền chuyên mục", domain.ErrValidation)
+	}
 	if in.Name != nil {
 		b.Name = strings.TrimSpace(*in.Name)
 		if b.Name == "" {
@@ -442,15 +459,18 @@ func (s *Service) UpdateBoard(ctx context.Context, boardID, profileUUID string, 
 	if in.IsLocked != nil {
 		b.IsLocked = *in.IsLocked
 	}
-	if in.MinRole != nil {
-		b.MinRole = *in.MinRole
-	}
 	if in.DescriptionMD != nil {
 		html := s.md.Render(*in.DescriptionMD)
 		b.DescriptionMD = in.DescriptionMD
 		b.DescriptionHTML = &html
 	}
-	return s.repo.UpdateBoard(ctx, boardID, *b)
+	updated, err := s.repo.UpdateBoard(ctx, boardID, *b)
+	if err != nil {
+		return nil, err
+	}
+	caps, _ := s.GetBoardCapabilities(ctx, updated.ID, profileUUID)
+	updated.Capabilities = caps
+	return updated, nil
 }
 
 func (s *Service) DeleteBoard(ctx context.Context, boardID, profileUUID string) error {
