@@ -37,7 +37,8 @@ func (s *Service) ensureCommentTarget(ctx context.Context, ref domain.ResourceRe
 		return nil, domain.ErrServiceNotRegistered
 	}
 	if t, err := s.repo.GetCommentTarget(ctx, ref); err == nil {
-		if (t.State == "unverified" || t.Visibility == "private" || t.VerifiedAt == nil) && svc.VerifyMode != "trust" {
+		stale := t.VerifiedAt == nil || time.Since(*t.VerifiedAt) > s.cfg.CommentTargetTTL
+		if (t.State == "unverified" || t.State == "gone" || t.Visibility == "private" || stale) && svc.VerifyMode != "trust" {
 			s.resolver.InvalidateCache(ctx, ref)
 			resolved, resolveErr := s.resolver.Resolve(ctx, ref)
 			if resolveErr == nil {
@@ -45,8 +46,12 @@ func (s *Service) ensureCommentTarget(ctx context.Context, ref domain.ResourceRe
 				now := time.Now()
 				t.VerifiedAt = &now
 				if out, err := s.repo.UpsertCommentTarget(ctx, *t); err == nil {
+					s.clearCommentCaches(ctx, ref)
 					return out, nil
 				}
+			} else if errors.Is(resolveErr, commentresolver.ErrNotFound) {
+				t.State = "gone"
+				_ = s.repo.SetCommentTargetState(ctx, t.ID, "gone", true)
 			}
 		}
 		return t, nil

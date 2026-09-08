@@ -83,3 +83,13 @@ Trigger giữ `search_tsv` luôn đúng theo thời gian thực (đủ cho giai 
 đổi sang engine ngoài: `ludiskus-worker` đọc `outbox` loại `index.upsert` để đẩy
 document sang engine — interface `search.Engine` đã trừu tượng hoá nên transport
 HTTP không đổi.
+
+## 6.7 Triển khai được kiểm chứng 2026-09-08
+
+Migration 0011 giữ title trọng số A + bài đầu trọng số B qua trigger. Repo thực thi
+`internal/search.Engine`, tìm cả reply và trả một Topic kèm Post khớp tốt nhất;
+không tạo một hàng riêng cho mỗi reply. `kind=post` yêu cầu khớp thân Post. Fuzzy
+hiện dùng `similarity` trên tiêu đề, chưa áp slug/tag như hướng mở rộng ở trên.
+Snippet/tiêu đề escape HTML trước khi chèn `<mark>`. Ngày lọc áp ngày tạo Topic
+(UTC), `until` bao gồm cả ngày. UI có debounce, lọc và phân trang; xem kết quả SQL
+và giới hạn tải ở [15](15-nghiem-thu-dien-dan.md).

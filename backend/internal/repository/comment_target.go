@@ -170,7 +170,7 @@ func (r *Repo) SetCommentThreadState(ctx context.Context, id, state string) erro
 
 func (r *Repo) ListStaleCommentTargets(ctx context.Context, before string, limit int) ([]domain.CommentTarget, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+commentTargetCols+` FROM comment_targets
-		WHERE state IN ('unverified','active') AND (verified_at IS NULL OR verified_at < $1::timestamptz)
+		WHERE state IN ('unverified','active','gone') AND (verified_at IS NULL OR verified_at < $1::timestamptz)
 		ORDER BY (comment_count>0) DESC, verified_at NULLS FIRST LIMIT $2`, before, limit)
 	if err != nil {
 		return nil, err

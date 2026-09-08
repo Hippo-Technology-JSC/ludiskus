@@ -82,3 +82,12 @@ Bài của **moderator/admin/owner** Space luôn bỏ qua hàng chờ (trust sta
   `report_auto_hide_threshold=5` (cân bằng giữa mở và chống spam).
 - Space `is_public=false` (nội bộ): có thể đặt `none`/`post` vì người dùng đã
   được kiểm soát ở tầng thành viên.
+
+## 4.8 Thiết kế bổ sung: người kiểm duyệt theo Board
+
+Moderator hiệu lực sẽ gồm staff Space và Profile được phân công cho đúng Board.
+Queue, report, đọc nội dung ẩn và thao tác duyệt đều kiểm quyền từ target → Board.
+Chế độ tiền/hậu kiểm vẫn theo Space; quyền sửa ACL thuộc owner/admin Space.
+
+**Trạng thái: thiết kế, chưa triển khai.** Contract và tiêu chí chi tiết:
+[16 — Phân quyền theo Board](16-phan-quyen-board.md).

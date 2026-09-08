@@ -8,6 +8,10 @@
 > **Interaction Platform** (`lufami`) và **tái dùng đúng một hợp đồng S2S** mà service sở
 > hữu nội dung đã (hoặc sẽ) cài cho Interaction.
 
+> **Triển khai bổ sung 2026-09-08:** [17 — Nghiệm thu LuComment](17-nghiem-thu.md)
+> ghi thay đổi đã thực hiện, 9 nhóm PostgreSQL/Redis, 6 unit test, 10 Chrome fixture
+> checks và các cổng phiên đăng nhập/thông báo/tích hợp thật còn mở.
+
 ## Thông tin phiên bản
 
 | Mục | Giá trị |
@@ -15,14 +19,25 @@
 | Tên phân hệ | LuComment (Comment Platform) |
 | Thuộc dịch vụ | `ludiskus` backend (`ludiskus-api` + `ludiskus-worker`) + app **tm** (frontend) |
 | Phiên bản tài liệu | 1.0 |
-| Ngày cập nhật | 2026-08-21 |
-| Trạng thái | **Đã triển khai GĐ0–GĐ7** — xem bằng chứng và giới hạn nghiệm thu bên dưới |
+| Ngày cập nhật | 2026-09-08 |
+| Trạng thái | **Có triển khai GĐ0–GĐ7, chưa hoàn tất toàn bộ yêu cầu** — xem [đối chiếu code hiện tại](../14-tien-do-thuc-te.md) |
 | Tài liệu gốc của ludiskus | [../README.md](../README.md) |
 | Tài liệu nền tảng phải đọc kèm | [Interaction Platform (lufami)](../../../lufami/docs/interaction.md) |
 
-## Trạng thái triển khai 2026-08-21
+## Trạng thái hiện tại 2026-09-08
 
-Đã triển khai toàn bộ lát cắt mã nguồn GĐ0–GĐ7: schema/migration, registry và resolver S2S,
+Đã bổ sung invalidation policy giữa instance, batch provider, idempotency/rate-limit,
+queue ngoại tuyến giữ tệp, tìm trong Thread/drawer và transaction notification/duyệt.
+Bốn điểm nhúng Lumuse, Lukolek, Lukode, LuProjet tiếp tục dùng component chung.
+
+Go test/vet và frontend build đạt; 9 nhóm nghiệm thu PostgreSQL/Redis, 6 unit test,
+10 Chrome fixture checks và 8 nhóm hồi quy diễn đàn đạt. API/worker local đã nạp code.
+Phiên BFF, thông báo người thật và bốn service E2E vẫn chưa được xác minh; xem
+[biên bản hiện tại](17-nghiem-thu.md) và [bảng GĐ0–GĐ7](../14-tien-do-thuc-te.md).
+
+## Bằng chứng lịch sử 2026-08-21
+
+Đợt triển khai này đã bổ sung các nhóm mã nguồn GĐ0–GĐ7: schema/migration, registry và resolver S2S,
 API đọc–viết/cây/đính kèm/kiểm duyệt/thông báo, component SolidJS dùng chung, public BFF,
 trang quản trị, ba mẫu tích hợp (`lumuse`, `lukode`, `luprojet`), cờ abuse, đối soát và
 `sort=top` từ Interaction Platform. Migration bổ sung `0008` sửa constraint
@@ -36,9 +51,10 @@ S2S chéo service trả `403`; idempotency bình luận hệ thống cho đúng 
 đã áp migration `0003`–`0008`, đăng ký event type Lunoti và gọi aggregates LuFami bằng OAuth
 thật thành công.
 
-Chưa thể xác minh trong phiên thực hiện: tương tác browser có đăng nhập (không có browser được
+Chưa thể xác minh trong phiên 2026-08-21: tương tác browser có đăng nhập (không có browser được
 kết nối), email thực nhận và p95 HTTP end-to-end. Các mục này là cổng nghiệm thu vận hành,
-không phải phần mã nguồn còn thiếu; không được coi là đã đạt cho tới khi chạy trong môi trường
+được theo dõi tiếp trong biên bản 2026-09-08;
+không được coi là đã đạt cho tới khi chạy trong môi trường
 QA có browser/mail/load harness.
 
 ## Vì sao cần phân hệ này

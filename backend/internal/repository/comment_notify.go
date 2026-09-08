@@ -2,12 +2,14 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"ludiskus/internal/domain"
 )
 
 type CommentNotifyRow struct {
+	ClaimToken           string
 	ID                   int64
 	EventType            string
 	RecipientProfileUUID string
@@ -33,7 +35,7 @@ func (r *Repo) ClaimDueCommentNotify(ctx context.Context, limit int) ([]CommentN
 	), claimed AS (
 		UPDATE comment_notify_buffer b SET claim_token=token.id,claimed_at=now()
 		FROM picked,token WHERE b.id=picked.id
-		RETURNING b.id,b.event_type,b.recipient_profile_uuid,b.target_id,b.comment_id,b.actor_profile_uuid,b.occurred_at,b.flush_after
+		RETURNING b.id,b.event_type,b.recipient_profile_uuid,b.target_id,b.comment_id,b.actor_profile_uuid,b.occurred_at,b.flush_after,b.claim_token
 	) SELECT * FROM claimed ORDER BY flush_after,id`, limit)
 	if err != nil {
 		return nil, err
@@ -42,7 +44,7 @@ func (r *Repo) ClaimDueCommentNotify(ctx context.Context, limit int) ([]CommentN
 	out := []CommentNotifyRow{}
 	for rows.Next() {
 		var v CommentNotifyRow
-		if err := rows.Scan(&v.ID, &v.EventType, &v.RecipientProfileUUID, &v.TargetID, &v.CommentID, &v.ActorProfileUUID, &v.OccurredAt, &v.FlushAfter); err != nil {
+		if err := rows.Scan(&v.ID, &v.EventType, &v.RecipientProfileUUID, &v.TargetID, &v.CommentID, &v.ActorProfileUUID, &v.OccurredAt, &v.FlushAfter, &v.ClaimToken); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -154,7 +156,6 @@ func (r *Repo) CleanupCommentData(ctx context.Context, maxRevisions, auditDays i
 		args []any
 	}{
 		{`DELETE FROM comment_targets WHERE state='gone' AND comment_count=0 AND updated_at<now()-interval '30 days'`, nil},
-		{`DELETE FROM comment_notify_buffer WHERE flush_after<now()-interval '1 day'`, nil},
 		{`DELETE FROM comment_revisions r USING (SELECT comment_id,revision,row_number() OVER(PARTITION BY comment_id ORDER BY revision DESC) rn FROM comment_revisions) x WHERE r.comment_id=x.comment_id AND r.revision=x.revision AND x.rn>$1`, []any{maxRevisions}},
 		{`DELETE FROM comment_audit_logs WHERE created_at<now()-make_interval(days=>$1)`, []any{auditDays}},
 	}
@@ -166,4 +167,42 @@ func (r *Repo) CleanupCommentData(ctx context.Context, maxRevisions, auditDays i
 		total += tag.RowsAffected()
 	}
 	return total, tx.Commit(ctx)
+}
+
+// CompleteCommentNotify atomically transfers a leased batch to the outbox.
+// A stale worker cannot delete rows reclaimed by a different worker.
+func (r *Repo) CompleteCommentNotify(ctx context.Context, ids []int64, token, event, key string, payload []byte, attempts int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT id FROM comment_notify_buffer WHERE id=ANY($1::bigint[]) AND claim_token=$2::uuid FOR UPDATE`, ids, token)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for rows.Next() {
+		n++
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if n != len(ids) {
+		return fmt.Errorf("%w: notification lease changed", domain.ErrConflict)
+	}
+	if event != "" {
+		if _, err = tx.Exec(ctx, `INSERT INTO outbox(event_type,idempotency_key,payload,max_attempts) VALUES($1,$2,$3,$4) ON CONFLICT(idempotency_key) DO NOTHING`, event, key, payload, attempts); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM comment_notify_buffer WHERE id=ANY($1::bigint[]) AND claim_token=$2::uuid`, ids, token); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

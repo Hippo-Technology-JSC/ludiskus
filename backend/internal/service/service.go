@@ -413,7 +413,15 @@ func (s *Service) CreateBoard(ctx context.Context, spaceUUID, profileUUID string
 	return s.repo.CreateBoard(ctx, b)
 }
 
-func (s *Service) UpdateBoard(ctx context.Context, boardID, profileUUID string, in BoardInput) (*domain.Board, error) {
+type BoardPatchInput struct {
+	Name          *string `json:"name"`
+	DescriptionMD *string `json:"descriptionMd"`
+	Position      *int    `json:"position"`
+	IsLocked      *bool   `json:"isLocked"`
+	MinRole       *string `json:"minRole"`
+}
+
+func (s *Service) UpdateBoard(ctx context.Context, boardID, profileUUID string, in BoardPatchInput) (*domain.Board, error) {
 	b, err := s.repo.GetBoard(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -422,17 +430,24 @@ func (s *Service) UpdateBoard(ctx context.Context, boardID, profileUUID string, 
 	if role != domain.RoleOwner && role != domain.RoleAdmin {
 		return nil, domain.ErrForbidden
 	}
-	if in.Name != "" {
-		b.Name = in.Name
+	if in.Name != nil {
+		b.Name = strings.TrimSpace(*in.Name)
+		if b.Name == "" {
+			return nil, domain.ErrValidation
+		}
 	}
-	b.Position = in.Position
-	b.IsLocked = in.IsLocked
-	if in.MinRole != "" {
-		b.MinRole = in.MinRole
+	if in.Position != nil {
+		b.Position = *in.Position
 	}
-	if in.DescriptionMD != "" {
-		html := s.md.Render(in.DescriptionMD)
-		b.DescriptionMD = &in.DescriptionMD
+	if in.IsLocked != nil {
+		b.IsLocked = *in.IsLocked
+	}
+	if in.MinRole != nil {
+		b.MinRole = *in.MinRole
+	}
+	if in.DescriptionMD != nil {
+		html := s.md.Render(*in.DescriptionMD)
+		b.DescriptionMD = in.DescriptionMD
 		b.DescriptionHTML = &html
 	}
 	return s.repo.UpdateBoard(ctx, boardID, *b)

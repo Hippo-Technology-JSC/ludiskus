@@ -303,3 +303,12 @@ posts, topics, boards, space_moderators, space_forums) rồi drop function
 Migration `0002_interaction_cutover` snapshot reaction lịch sử vào
 `interaction_backfill_outbox`, drop ngay `reactions` và hai cột
 `reaction_count`; worker chuyển idempotent sang Lufami rồi xoá hàng staging.
+
+## Thiết kế bổ sung: dữ liệu quyền Board
+
+Dự kiến bổ sung `board_permissions`, `board_permission_profiles`, `board_moderators`
+và audit; cập nhật policy/grants/version trong cùng transaction. Chưa tạo migration.
+Board cũ mặc định kế thừa quyền Space để giữ hành vi đang chạy.
+
+**Trạng thái: thiết kế, chưa triển khai.** Contract và tiêu chí chi tiết:
+[16 — Phân quyền theo Board](16-phan-quyen-board.md).

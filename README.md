@@ -13,15 +13,20 @@ nằm trong app **tm** đi qua **BFF**.
 
 ## Deploy
 
+Tiến độ so với kế hoạch: [cập nhật diễn đàn 2026-09-08](docs/14-tien-do-thuc-te.md)
+và [biên bản nghiệm thu](docs/15-nghiem-thu-dien-dan.md). Tách rõ PostgreSQL/MinIO,
+Chrome fixture, runtime cơ sở và các gate BFF/thông báo/tải còn mở.
+
 Repo hiện có sẵn:
 
-- `docker-compose.yml`
+- `docker-compose.yml.example`
 - `.env.example`
 
 Chạy standalone:
 
 ```bash
 cp .env.example .env
+cp docker-compose.yml.example docker-compose.yml
 docker compose up -d --build
 ```
 

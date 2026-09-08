@@ -123,23 +123,6 @@ func (r *Resolver) Resolve(ctx context.Context, ref domain.ResourceRef) (*Result
 	return nil, ErrNotFound
 }
 
-func (r *Resolver) ResolveBatch(ctx context.Context, refs []domain.ResourceRef) (map[string]*Result, map[string]error) {
-	out := map[string]*Result{}
-	skipped := map[string]error{}
-	if len(refs) > r.cfg.CommentBatchMax {
-		refs = refs[:r.cfg.CommentBatchMax]
-	}
-	for _, ref := range refs {
-		v, err := r.Resolve(ctx, ref)
-		if err != nil {
-			skipped[ref.String()] = err
-		} else {
-			out[ref.String()] = v
-		}
-	}
-	return out, skipped
-}
-
 func (r *Resolver) InvalidateCache(ctx context.Context, ref domain.ResourceRef) {
 	if r.redis != nil {
 		_ = r.redis.Del(ctx, cacheKey(ref)).Err()

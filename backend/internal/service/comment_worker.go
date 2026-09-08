@@ -15,16 +15,28 @@ func (s *Service) VerifyCommentTargets(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	refs := []domain.ResourceRef{}
+	for _, t := range targets {
+		svc, e := s.repo.GetCommentService(ctx, t.ServiceCode)
+		if e == nil && svc.IsActive && svc.VerifyMode != "trust" {
+			s.resolver.InvalidateCache(ctx, t.Ref())
+			refs = append(refs, t.Ref())
+		}
+	}
+	resolved, failed := s.resolver.ResolveBatch(ctx, refs)
 	done := 0
 	for _, t := range targets {
 		svc, e := s.repo.GetCommentService(ctx, t.ServiceCode)
 		if e != nil || svc.VerifyMode == "trust" {
 			continue
 		}
-		v, e := s.resolver.Resolve(ctx, t.Ref())
+		v, e := resolved[t.Ref().String()], failed[t.Ref().String()]
+		if v == nil && e == nil {
+			continue
+		}
 		if e != nil {
 			state := t.State
-			if errors.Is(e, commentresolver.ErrNotFound) || t.VerifyFailures+1 >= 3 {
+			if errors.Is(e, commentresolver.ErrNotFound) {
 				state = "gone"
 			}
 			_ = s.repo.SetCommentTargetState(ctx, t.ID, state, true)

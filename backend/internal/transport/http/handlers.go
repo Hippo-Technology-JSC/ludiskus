@@ -118,7 +118,7 @@ func (s *Server) createBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateBoard(w http.ResponseWriter, r *http.Request) {
-	var in service.BoardInput
+	var in service.BoardPatchInput
 	if !decode(w, r, &in) {
 		return
 	}
@@ -291,6 +291,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	items, err := s.svc.Search(r.Context(), s.me(r), service.SearchInput{
 		Query: q.Get("q"), SpaceUUID: q.Get("space"), BoardID: q.Get("board"),
 		AuthorUUID: q.Get("author"), TopicType: q.Get("type"), Limit: limit, Offset: offset,
+		Tag: q.Get("tag"), Status: q.Get("status"), Kind: q.Get("kind"), From: q.Get("from"), Until: q.Get("until"),
 	})
 	if err != nil {
 		writeError(w, s.log, err)

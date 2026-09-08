@@ -14,18 +14,18 @@ import (
 
 const topicCols = `id, space_uuid, board_id, author_profile_uuid, title, slug, type, status,
 	is_pinned, is_resolved, answer_post_id, reply_count, view_count,
-	last_post_at, last_post_profile_uuid, created_at, updated_at`
+	last_post_at, last_post_profile_uuid, created_at, updated_at, assignee_profile_uuid`
 
 func scanTopic(row pgx.Row, t *domain.Topic) error {
 	return row.Scan(&t.ID, &t.SpaceUUID, &t.BoardID, &t.AuthorProfileUUID, &t.Title, &t.Slug,
 		&t.Type, &t.Status, &t.IsPinned, &t.IsResolved, &t.AnswerPostID, &t.ReplyCount,
 		&t.ViewCount, &t.LastPostAt, &t.LastPostProfileUUID,
-		&t.CreatedAt, &t.UpdatedAt)
+		&t.CreatedAt, &t.UpdatedAt, &t.AssigneeProfileUUID)
 }
 
 // CreateTopicWithPost tạo Topic + Post đầu trong một transaction, cập nhật đếm
 // board. status truyền vào (published | pending tuỳ kiểm duyệt).
-func (r *Repo) CreateTopicWithPost(ctx context.Context, t domain.Topic, p domain.Post) (*domain.Topic, *domain.Post, error) {
+func (r *Repo) CreateTopicWithPost(ctx context.Context, t domain.Topic, p domain.Post, attachmentIDs ...string) (*domain.Topic, *domain.Post, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -56,6 +56,9 @@ func (r *Repo) CreateTopicWithPost(ctx context.Context, t domain.Topic, p domain
 
 	if _, err := tx.Exec(ctx, `UPDATE boards SET topic_count = topic_count + 1,
 		post_count = post_count + 1, last_activity_at = now() WHERE id = $1`, t.BoardID); err != nil {
+		return nil, nil, err
+	}
+	if err := attachForumFiles(ctx, tx, attachmentIDs, outP.ID, t.SpaceUUID, t.AuthorProfileUUID); err != nil {
 		return nil, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -94,15 +97,15 @@ func (r *Repo) SlugExists(ctx context.Context, spaceUUID, slug string) (bool, er
 // ListTopics liệt kê topic published trong board theo sort (latest|top|unanswered).
 func (r *Repo) ListTopics(ctx context.Context, boardID, sort string, limit, offset int) ([]domain.Topic, error) {
 	order := "t.is_pinned DESC, t.last_post_at DESC NULLS LAST"
-	where := "t.board_id = $1 AND t.status = 'published'"
+	where := "t.board_id = $1 AND t.status IN ('published','locked')"
 	switch sort {
 	case "top":
 		order = "t.is_pinned DESC, t.reply_count DESC, t.view_count DESC, t.last_post_at DESC NULLS LAST"
 	case "unanswered":
-		where += " AND t.reply_count = 0"
+		where += " AND t.type = 'question' AND t.answer_post_id IS NULL"
 	}
 	rows, err := r.pool.Query(ctx, `SELECT `+topicColsT+` FROM topics t
-		WHERE `+where+` ORDER BY `+order+` LIMIT $2 OFFSET $3`, boardID, limit, offset)
+		WHERE `+where+` ORDER BY `+order+`, t.id LIMIT $2 OFFSET $3`, boardID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -112,17 +115,17 @@ func (r *Repo) ListTopics(ctx context.Context, boardID, sort string, limit, offs
 // ListSpaceTopics liệt kê topic published trong toàn bộ Space theo sort.
 func (r *Repo) ListSpaceTopics(ctx context.Context, spaceUUID, sort string, limit, offset int) ([]domain.Topic, error) {
 	order := "t.is_pinned DESC, t.last_post_at DESC NULLS LAST"
-	where := "t.space_uuid = $1 AND t.status = 'published'"
+	where := "t.space_uuid = $1 AND t.status IN ('published','locked')"
 	switch sort {
 	case "top":
 		order = "t.is_pinned DESC, t.reply_count DESC, t.view_count DESC, t.last_post_at DESC NULLS LAST"
 	case "unanswered":
-		where += " AND t.reply_count = 0"
+		where += " AND t.type = 'question' AND t.answer_post_id IS NULL"
 	case "created":
 		order = "t.created_at DESC"
 	}
 	rows, err := r.pool.Query(ctx, `SELECT `+topicColsT+` FROM topics t
-		WHERE `+where+` ORDER BY `+order+` LIMIT $2 OFFSET $3`, spaceUUID, limit, offset)
+		WHERE `+where+` ORDER BY `+order+`, t.id LIMIT $2 OFFSET $3`, spaceUUID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +162,20 @@ func (r *Repo) SetTopicAnswer(ctx context.Context, topicID, postID string) error
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var topicStatus string
+	if err := tx.QueryRow(ctx, `SELECT status FROM topics WHERE id=$1 FOR UPDATE`, topicID).Scan(&topicStatus); err != nil {
+		return err
+	}
+	if topicStatus != "published" {
+		return domain.ErrValidation
+	}
+	var valid bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM posts WHERE id=$1 AND topic_id=$2 AND NOT is_first AND status='published')`, postID, topicID).Scan(&valid); err != nil {
+		return err
+	}
+	if !valid {
+		return domain.ErrValidation
+	}
 	if _, err := tx.Exec(ctx, `UPDATE posts SET is_answer = false WHERE topic_id = $1`, topicID); err != nil {
 		return err
 	}
@@ -174,7 +191,7 @@ func (r *Repo) SetTopicAnswer(ctx context.Context, topicID, postID string) error
 // topicColsT thêm prefix t. cho truy vấn có alias.
 const topicColsT = `t.id, t.space_uuid, t.board_id, t.author_profile_uuid, t.title, t.slug, t.type,
 	t.status, t.is_pinned, t.is_resolved, t.answer_post_id, t.reply_count, t.view_count,
-	t.last_post_at, t.last_post_profile_uuid, t.created_at, t.updated_at`
+	t.last_post_at, t.last_post_profile_uuid, t.created_at, t.updated_at, t.assignee_profile_uuid`
 
 func collectTopics(rows pgx.Rows) ([]domain.Topic, error) {
 	defer rows.Close()
@@ -201,7 +218,7 @@ func scanPost(row pgx.Row, p *domain.Post) error {
 }
 
 // CreateReply tạo post trả lời + cập nhật đếm topic/board (nếu published).
-func (r *Repo) CreateReply(ctx context.Context, p domain.Post) (*domain.Post, error) {
+func (r *Repo) CreateReply(ctx context.Context, p domain.Post, attachmentIDs ...string) (*domain.Post, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -228,6 +245,9 @@ func (r *Repo) CreateReply(ctx context.Context, p domain.Post) (*domain.Post, er
 			p.TopicID); err != nil {
 			return nil, err
 		}
+	}
+	if err := attachForumFiles(ctx, tx, attachmentIDs, out.ID, p.SpaceUUID, p.AuthorProfileUUID); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -264,10 +284,10 @@ func (r *Repo) FirstPost(ctx context.Context, topicID string) (*domain.Post, err
 	return &p, err
 }
 
-func (r *Repo) ListPosts(ctx context.Context, topicID string, limit, offset int) ([]domain.Post, error) {
+func (r *Repo) ListPosts(ctx context.Context, topicID, viewer string, moderator bool, limit, offset int) ([]domain.Post, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+postCols+` FROM posts
-		WHERE topic_id = $1 AND status = 'published' ORDER BY created_at LIMIT $2 OFFSET $3`,
-		topicID, limit, offset)
+		WHERE topic_id = $1 AND status<>'deleted' AND (status='published' OR $4 OR author_profile_uuid=NULLIF($5,'')::uuid) ORDER BY created_at,id LIMIT $2 OFFSET $3`,
+		topicID, limit, offset, moderator, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -294,37 +314,52 @@ func (r *Repo) UpdatePost(ctx context.Context, id, bodyMD, bodyHTML string) (*do
 }
 
 func (r *Repo) SetPostStatus(ctx context.Context, id, status string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE posts SET status = $2::post_status WHERE id = $1`, id, status)
+	_, err := r.transitionForumPost(ctx, id, status)
 	return err
 }
-
-// PublishPost chuyển post pending → published và cập nhật đếm (khi duyệt).
 func (r *Repo) PublishPost(ctx context.Context, id string) (*domain.Post, error) {
+	return r.transitionForumPost(ctx, id, "published")
+}
+func (r *Repo) transitionForumPost(ctx context.Context, id, status string) (*domain.Post, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	var p domain.Post
-	if err := scanPost(tx.QueryRow(ctx, `UPDATE posts SET status = 'published'
-		WHERE id = $1 RETURNING `+postCols, id), &p); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
+	// Serialize answer, reopen and moderation changes in topic-before-post order.
+	var topicID string
+	if err = tx.QueryRow(ctx, `SELECT id FROM topics WHERE id=(SELECT topic_id FROM posts WHERE id=$1) FOR UPDATE`, id).Scan(&topicID); err != nil {
 		return nil, err
 	}
-	if !p.IsFirst {
-		if _, err := tx.Exec(ctx, `UPDATE topics SET reply_count = reply_count + 1,
-			last_post_at = now(), last_post_profile_uuid = $2 WHERE id = $1`,
-			p.TopicID, p.AuthorProfileUUID); err != nil {
+	var old domain.Post
+	if err = scanPost(tx.QueryRow(ctx, `SELECT `+postCols+` FROM posts WHERE id=$1 FOR UPDATE`, id), &old); err != nil {
+		return nil, err
+	}
+	var p domain.Post
+	if err = scanPost(tx.QueryRow(ctx, `UPDATE posts SET status=$2::post_status,is_answer=CASE WHEN $2='published' THEN is_answer ELSE false END WHERE id=$1 RETURNING `+postCols, id, status), &p); err != nil {
+		return nil, err
+	}
+	delta := 0
+	if old.Status == "published" {
+		delta--
+	}
+	if status == "published" {
+		delta++
+	}
+	if !old.IsFirst && delta != 0 {
+		if _, err = tx.Exec(ctx, `UPDATE topics SET reply_count=GREATEST(0,reply_count+$2),answer_post_id=CASE WHEN answer_post_id=$3 AND $2<0 THEN NULL ELSE answer_post_id END,is_resolved=CASE WHEN answer_post_id=$3 AND $2<0 THEN false ELSE is_resolved END WHERE id=$1`, p.TopicID, delta, id); err != nil {
 			return nil, err
 		}
-	} else {
-		if _, err := tx.Exec(ctx, `UPDATE topics SET status = 'published' WHERE id = $1`, p.TopicID); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE boards SET post_count=GREATEST(0,post_count+$2) WHERE id=(SELECT board_id FROM topics WHERE id=$1)`, p.TopicID, delta); err != nil {
 			return nil, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if p.IsFirst {
+		if _, err = tx.Exec(ctx, `UPDATE topics SET status=$2::topic_status WHERE id=$1`, p.TopicID, status); err != nil {
+			return nil, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return &p, nil

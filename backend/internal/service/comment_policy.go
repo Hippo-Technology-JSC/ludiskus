@@ -3,13 +3,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"time"
 
 	"ludiskus/internal/domain"
 )
 
 type cachedCommentPolicy struct {
+	version string
 	policy  domain.CommentPolicy
 	expires time.Time
 }
@@ -47,8 +50,14 @@ func mergeJSONObjects(base any, overlays ...json.RawMessage) ([]byte, error) {
 
 func (s *Service) commentPolicy(ctx context.Context, t *domain.CommentTarget) (domain.CommentPolicy, error) {
 	key := t.ServiceCode + ":" + t.ResourceType
+	version, cacheOK := "", true
+	if s.redis != nil {
+		var err error
+		version, err = s.redis.Get(ctx, "cmt:pol:v").Result()
+		cacheOK = err == nil || errors.Is(err, redis.Nil)
+	}
 	s.policyMu.Lock()
-	if c, ok := s.policyCache[key]; ok && time.Now().Before(c.expires) {
+	if c, ok := s.policyCache[key]; ok && cacheOK && c.version == version && time.Now().Before(c.expires) {
 		s.policyMu.Unlock()
 		return restrictPolicy(c.policy, t.Capabilities), nil
 	}
@@ -58,10 +67,14 @@ func (s *Service) commentPolicy(ctx context.Context, t *domain.CommentTarget) (d
 	if raw, err := s.repo.GetCommentPolicy(ctx, t.ServiceCode, "*"); err == nil {
 		overlays = append(overlays, raw)
 		found = true
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return domain.CommentPolicy{}, err
 	}
 	if raw, err := s.repo.GetCommentPolicy(ctx, t.ServiceCode, t.ResourceType); err == nil {
 		overlays = append(overlays, raw)
 		found = true
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return domain.CommentPolicy{}, err
 	}
 	raw, err := mergeJSONObjects(domain.DefaultCommentPolicy(), overlays...)
 	if err != nil {
@@ -78,7 +91,7 @@ func (s *Service) commentPolicy(ctx context.Context, t *domain.CommentTarget) (d
 		return p, err
 	}
 	s.policyMu.Lock()
-	s.policyCache[key] = cachedCommentPolicy{policy: p, expires: time.Now().Add(time.Minute)}
+	s.policyCache[key] = cachedCommentPolicy{version: version, policy: p, expires: time.Now().Add(time.Minute)}
 	s.policyMu.Unlock()
 	return restrictPolicy(p, t.Capabilities), nil
 }

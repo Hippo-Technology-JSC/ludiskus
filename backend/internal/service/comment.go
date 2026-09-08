@@ -68,10 +68,21 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 		return nil, false, err
 	}
 	if profile, e := s.ident.Profile(ctx, profileUUID); e == nil && profile.CreatedAt != nil && time.Since(*profile.CreatedAt) < time.Duration(s.cfg.CommentNewProfileHours)*time.Hour {
-		p.RateLimit.PerMinute = min(p.RateLimit.PerMinute, 2)
+		p.RateLimit.PerMinute = positiveMin(p.RateLimit.PerMinute, 2)
 		p.MaxLinks = 0
 		if p.ModerationMode == "none" || p.ModerationMode == "post" {
 			p.ModerationMode = "first_comment"
+		}
+	}
+	if idem != "" {
+		if old, e := s.repo.CommentByIdempotency(ctx, idem); e == nil {
+			if old.TargetID != t.ID || old.AuthorProfileUUID == nil || *old.AuthorProfileUUID != profileUUID || old.BodyHash != commentBodyHash(normalizeCommentBody(in.BodyMD)) || !sameCommentIdentity(old.AuthorSpaceUUID, in.ActAsSpaceUUID) {
+				return nil, false, domain.ErrConflict
+			}
+			s.enrichComments(ctx, []*domain.Comment{old}, profileUUID, caps.CanModerate)
+			return old, false, nil
+		} else if !errors.Is(e, domain.ErrNotFound) {
+			return nil, false, e
 		}
 	}
 	body := normalizeCommentBody(in.BodyMD)
@@ -150,7 +161,10 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 	mentions := s.resolveCommentMentions(ctx, t, p, body)
 	notifications := []repository.CommentNotifyInsert(nil)
 	if comment.Status == domain.CommentPublished {
-		notifications = s.commentNotifyRows(ctx, t, &comment, p, mentions)
+		notifications, err = s.commentNotifyRows(ctx, t, &comment, p, mentions)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 	out, created, err := s.repo.InsertComment(ctx, repository.InsertCommentInput{Comment: comment, MentionProfileUUIDs: mentions,
 		AttachmentIDs: in.AttachmentIDs, SpaceUUID: t.SpaceUUID, ModerationSource: modSource, Notifications: notifications})
@@ -739,4 +753,8 @@ func errorCode(err error) string {
 		}
 	}
 	return "not_found"
+}
+
+func sameCommentIdentity(a, b *string) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }

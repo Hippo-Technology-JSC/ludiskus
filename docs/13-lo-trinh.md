@@ -1,5 +1,12 @@
 # 13 — Lộ trình
 
+> **Cập nhật diễn đàn 2026-09-08:** đã bổ sung cây trả lời/editor, tìm thân bài
+> và bộ lọc, Support/Q&A, kiểm tệp, queue kiểm duyệt và metrics. Xem
+> [tiến độ thực tế](14-tien-do-thuc-te.md) và [nghiệm thu](15-nghiem-thu-dien-dan.md).
+> PostgreSQL/MinIO và Chrome fixture đạt; phiên BFF thật, S2S Interaction 401,
+> chuông/email và tải production còn mở. LuComment tạm hoãn theo yêu cầu.
+> Reaction đã chuyển sang Lufami từ migration `0002`.
+
 Triển khai theo lát cắt dọc chạy được end-to-end, mở rộng dần — giống cách lubo/
 lunoti đi từ skeleton tới đầy đủ.
 
@@ -56,3 +63,11 @@ lunoti đi từ skeleton tới đầy đủ.
 - Search engine ngoài (Meilisearch) qua interface `search.Engine`.
 - Điểm uy tín (reputation), huy hiệu, thông báo gộp digest theo ngày.
 - Quét mã độc đính kèm (ClamAV), hạn ngạch dung lượng theo Space.
+
+## Hạng mục bổ sung — Phân quyền từng Board
+
+Triển khai tiếp theo: schema/evaluator → guard API/capability → UI cấu hình →
+nghiệm thu quyền chéo Board, thu hồi quyền, version và tương thích dữ liệu cũ.
+
+**Trạng thái: thiết kế, chưa triển khai.** Contract và tiêu chí chi tiết:
+[16 — Phân quyền theo Board](16-phan-quyen-board.md).

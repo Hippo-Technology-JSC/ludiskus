@@ -140,6 +140,9 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 	if err != nil {
 		return err
 	}
+	if item.TargetType == "comment" {
+		return s.decideCommentModeration(ctx, item, profileUUID, true, nil)
+	}
 	if err := s.requireModerate(ctx, item.SpaceUUID, profileUUID); err != nil {
 		return err
 	}
@@ -178,7 +181,10 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 			return e
 		}
 		mentions, _ := s.repo.CommentMentions(ctx, pending.ID)
-		notifications := s.commentNotifyRows(ctx, target, pending, policy, mentions)
+		notifications, e := s.commentNotifyRows(ctx, target, pending, policy, mentions)
+		if e != nil {
+			return e
+		}
 		comment, e := s.repo.TransitionCommentWithNotify(ctx, item.TargetID, "published", profileUUID, "approved", notifications)
 		if e == nil {
 			if target != nil {
@@ -198,6 +204,9 @@ func (s *Service) RejectModeration(ctx context.Context, itemID, profileUUID stri
 	item, err := s.repo.GetModerationItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.TargetType == "comment" {
+		return s.decideCommentModeration(ctx, item, profileUUID, false, note)
 	}
 	if err := s.requireModerate(ctx, item.SpaceUUID, profileUUID); err != nil {
 		return err

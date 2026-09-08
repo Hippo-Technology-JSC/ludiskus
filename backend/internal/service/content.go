@@ -56,6 +56,9 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 		return nil, fmt.Errorf("%w: vượt số lượng đính kèm tối đa", domain.ErrValidation)
 	}
 
+	if err := s.validateForumAttachments(ctx, board.SpaceUUID, profileUUID, in.AttachmentIDs); err != nil {
+		return nil, err
+	}
 	role := s.role(ctx, board.SpaceUUID, profileUUID)
 	status, modSource, err := s.decideStatus(ctx, forum, profileUUID, role, in.Title+" "+in.BodyMD)
 	if err != nil {
@@ -71,7 +74,7 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 	topic, post, err := s.repo.CreateTopicWithPost(ctx,
 		domain.Topic{SpaceUUID: board.SpaceUUID, BoardID: boardID, AuthorProfileUUID: profileUUID,
 			Title: in.Title, Slug: slug, Type: in.Type, Status: status},
-		domain.Post{BodyMD: in.BodyMD, BodyHTML: html, Status: status})
+		domain.Post{BodyMD: in.BodyMD, BodyHTML: html, Status: status}, in.AttachmentIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +106,10 @@ func (s *Service) GetTopic(ctx context.Context, topicID, profileUUID string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.requireView(ctx, t.SpaceUUID, profileUUID); err != nil {
+	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return nil, err
 	}
-	if t.Status != domain.StatusPublished && !canModerate(s.role(ctx, t.SpaceUUID, profileUUID)) && t.AuthorProfileUUID != profileUUID {
-		return nil, domain.ErrNotFound
-	}
+	s.forumTopicCapabilities(ctx, t, profileUUID)
 	s.repo.IncrementTopicView(ctx, topicID)
 	s.enrichTopics(ctx, []*domain.Topic{t})
 	return t, nil
@@ -122,6 +123,10 @@ func (s *Service) GetTopicBySlug(ctx context.Context, spaceUUID, slug, profileUU
 	if err != nil {
 		return nil, err
 	}
+	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
+		return nil, err
+	}
+	s.forumTopicCapabilities(ctx, t, profileUUID)
 	s.repo.IncrementTopicView(ctx, t.ID)
 	s.enrichTopics(ctx, []*domain.Topic{t})
 	return t, nil
@@ -187,9 +192,27 @@ func (s *Service) TopicAction(ctx context.Context, topicID, profileUUID, action 
 	if err != nil {
 		return err
 	}
+	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
+		return err
+	}
 	mod := canModerate(s.role(ctx, t.SpaceUUID, profileUUID))
 	owner := t.AuthorProfileUUID == profileUUID
 	switch action {
+	case "resolve", "reopen":
+		if !mod && !owner {
+			return domain.ErrForbidden
+		}
+		b, e := s.repo.GetBoard(ctx, t.BoardID)
+		if e != nil {
+			return e
+		}
+		if b.Kind != "support" && t.Type != "question" {
+			return domain.ErrValidation
+		}
+		if action == "resolve" && t.Type == "question" && t.AnswerPostID == nil {
+			return domain.ErrValidation
+		}
+		return s.repo.ResolveForumTopic(ctx, topicID, action == "resolve")
 	case "lock":
 		if !mod {
 			return domain.ErrForbidden
@@ -237,8 +260,25 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 	if err != nil {
 		return nil, err
 	}
-	if t.Status == domain.StatusLocked {
-		return nil, fmt.Errorf("%w: chủ đề đã khoá", domain.ErrForbidden)
+	if t.Status != domain.StatusPublished {
+		return nil, domain.ErrForbidden
+	}
+	if b, e := s.repo.GetBoard(ctx, t.BoardID); e != nil {
+		return nil, e
+	} else if b.IsLocked {
+		return nil, domain.ErrForbidden
+	}
+	if in.ReplyToID != nil {
+		p, e := s.repo.GetPost(ctx, *in.ReplyToID)
+		if e != nil {
+			return nil, e
+		}
+		if p.TopicID != topicID || p.Status != domain.StatusPublished {
+			return nil, domain.ErrValidation
+		}
+	}
+	if err := s.validateForumAttachments(ctx, t.SpaceUUID, profileUUID, in.AttachmentIDs); err != nil {
+		return nil, err
 	}
 	forum, err := s.requireView(ctx, t.SpaceUUID, profileUUID)
 	if err != nil {
@@ -260,7 +300,7 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 	post, err := s.repo.CreateReply(ctx, domain.Post{
 		TopicID: topicID, SpaceUUID: t.SpaceUUID, AuthorProfileUUID: profileUUID,
 		ReplyToID: in.ReplyToID, BodyMD: in.BodyMD, BodyHTML: html, Status: status,
-	})
+	}, in.AttachmentIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -287,20 +327,32 @@ func (s *Service) ListPosts(ctx context.Context, topicID, profileUUID string, li
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.requireView(ctx, t.SpaceUUID, profileUUID); err != nil {
+	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return nil, err
 	}
-	posts, err := s.repo.ListPosts(ctx, topicID, limit, offset)
+	posts, err := s.repo.ListPosts(ctx, topicID, profileUUID, canModerate(s.role(ctx, t.SpaceUUID, profileUUID)), limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	s.enrichPosts(ctx, t.SpaceUUID, posts)
+	mod := canModerate(s.role(ctx, t.SpaceUUID, profileUUID))
+	for i := range posts {
+		posts[i].CanEdit = posts[i].AuthorProfileUUID == profileUUID || mod
+		posts[i].CanDelete = posts[i].CanEdit
+	}
 	return posts, nil
 }
 
 func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD string) (*domain.Post, error) {
 	p, err := s.repo.GetPost(ctx, postID)
 	if err != nil {
+		return nil, err
+	}
+	t, err := s.repo.GetTopic(ctx, p.TopicID)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.readableForumTopic(ctx, t, profileUUID); err != nil {
 		return nil, err
 	}
 	if p.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, p.SpaceUUID, profileUUID)) {
@@ -322,6 +374,13 @@ func (s *Service) DeletePost(ctx context.Context, postID, profileUUID string) er
 	if err != nil {
 		return err
 	}
+	t, err := s.repo.GetTopic(ctx, p.TopicID)
+	if err != nil {
+		return err
+	}
+	if err = s.readableForumTopic(ctx, t, profileUUID); err != nil {
+		return err
+	}
 	if p.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, p.SpaceUUID, profileUUID)) {
 		return domain.ErrForbidden
 	}
@@ -341,6 +400,12 @@ func (s *Service) MarkAnswer(ctx context.Context, postID, profileUUID string) er
 	t, err := s.repo.GetTopic(ctx, p.TopicID)
 	if err != nil {
 		return err
+	}
+	if err := s.readableForumTopic(ctx, t, profileUUID); err != nil {
+		return err
+	}
+	if t.Type != "question" || p.IsFirst || p.Status != domain.StatusPublished {
+		return domain.ErrValidation
 	}
 	if t.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, t.SpaceUUID, profileUUID)) {
 		return domain.ErrForbidden
@@ -415,9 +480,7 @@ func (s *Service) ListTags(ctx context.Context, spaceUUID, profileUUID, query st
 // --- enrichment & helpers ---------------------------------------------------
 
 func (s *Service) attachAndMention(ctx context.Context, post *domain.Post, spaceUUID string, attachmentIDs []string, bodyMD string) {
-	if s.store != nil && len(attachmentIDs) > 0 {
-		s.repo.AttachToPost(ctx, attachmentIDs, post.ID, spaceUUID)
-	}
+	// Attachments were already claimed atomically in the post transaction.
 	handles := markdown.Mentions(bodyMD)
 	uuids := []string{}
 	for _, h := range handles {
@@ -470,8 +533,10 @@ func (s *Service) enrichPosts(ctx context.Context, spaceUUID string, posts []dom
 		posts[i].Author = pm[posts[i].AuthorProfileUUID]
 		atts := attMap[posts[i].ID]
 		for j := range atts {
-			if public {
+			if public && posts[i].Status == domain.StatusPublished {
 				atts[j].URL = s.store.PublicURL(atts[j].ObjectKey)
+			} else if s.store != nil {
+				atts[j].URL, _ = s.store.PresignGet(ctx, atts[j].ObjectKey, atts[j].FileName)
 			}
 		}
 		posts[i].Attachments = atts

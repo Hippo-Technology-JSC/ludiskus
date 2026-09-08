@@ -1,5 +1,18 @@
 # 16 — Danh sách công việc chi tiết
 
+> **Cập nhật 2026-09-08:** các khoảng thiếu policy/batch/queue/editor/notification
+> đã được bổ sung; xem [nghiệm thu hiện tại](17-nghiem-thu.md). Có 9 nhóm integration,
+> 6 unit test và 10 Chrome fixture checks đạt. Phiên BFF/chuông/email/bốn service
+> thật vẫn còn mở; không tự đánh dấu toàn bộ checklist kế hoạch là hoàn tất.
+
+
+> **Trạng thái ngày 2026-09-07:** xem [bảng đối chiếu theo GĐ/mã LC](../14-tien-do-thuc-te.md).
+> Đây là danh sách việc và cách kiểm chứng của kế hoạch gốc, không phải danh sách
+> toàn bộ việc chưa làm. Các nhóm LC-0–LC-7 đã có triển khai, còn khoảng thiếu cụ thể
+> và gate runtime; không thực hiện lại từ đầu chỉ dựa vào bảng này. Yêu cầu chặn
+> mọi token có `sub` và từ chối `sort=top` là mô tả cũ/mốc trung gian; xem contract
+> thực tế trong báo cáo trước khi dùng làm tiêu chí kiểm thử.
+
 ## 16.0 Đọc trước khi nhận việc
 
 **Cách dùng tài liệu này.** Mỗi đầu việc có mã (`LC-<GĐ>.<số>`), file phải sửa, việc phải làm,

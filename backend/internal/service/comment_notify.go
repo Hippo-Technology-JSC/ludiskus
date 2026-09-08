@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -13,34 +15,8 @@ import (
 )
 
 func (s *Service) afterCommentPublished(ctx context.Context, t *domain.CommentTarget, c *domain.Comment, p domain.CommentPolicy, mentions []string, bufferAlreadyWritten bool) {
-	author := ""
-	if c.AuthorProfileUUID != nil {
-		author = *c.AuthorProfileUUID
-	}
-	mentionSet := map[string]bool{}
-	for _, u := range mentions {
-		mentionSet[u] = true
-	}
-	actorName := author
-	if profile, _ := s.ident.Profile(ctx, author); profile != nil {
-		actorName = profile.Name
-	}
-	url := commentURL(t, c.ID)
-	excerpt := excerptOf(c.BodyMD)
-	for _, u := range mentions {
-		if u == author {
-			continue
-		}
-		data, _ := json.Marshal(map[string]any{"actor": actorName, "resourceTitle": t.Title, "excerpt": excerpt, "url": url})
-		key := "cmt:mention:" + c.ID + ":" + u
-		s.enqueueEvent(ctx, notify.Event{EventType: "ludiskus.comment.mentioned", IdempotencyKey: &key, Data: data, Recipients: []notify.Recipient{{ProfileUUID: u}}})
-	}
-	rows := s.commentNotifyRows(ctx, t, c, p, mentions)
-	if !bufferAlreadyWritten {
-		for _, item := range rows {
-			_ = s.repo.EnqueueCommentNotify(ctx, item.EventType, item.RecipientProfileUUID, t.ID, c.ID, item.ActorProfileUUID, item.FlushAfter)
-		}
-	}
+	// Notifications (including mentions) are already durable in the create/approve transaction.
+	rows, _ := s.commentNotifyRows(ctx, t, c, p, mentions)
 	if s.redis != nil {
 		for _, item := range rows {
 			_ = s.redis.Del(ctx, "cmt:unread:"+item.RecipientProfileUUID).Err()
@@ -48,7 +24,7 @@ func (s *Service) afterCommentPublished(ctx context.Context, t *domain.CommentTa
 	}
 }
 
-func (s *Service) commentNotifyRows(ctx context.Context, t *domain.CommentTarget, c *domain.Comment, p domain.CommentPolicy, mentions []string) []repository.CommentNotifyInsert {
+func (s *Service) commentNotifyRows(ctx context.Context, t *domain.CommentTarget, c *domain.Comment, p domain.CommentPolicy, mentions []string) ([]repository.CommentNotifyInsert, error) {
 	author := ""
 	if c.AuthorProfileUUID != nil {
 		author = *c.AuthorProfileUUID
@@ -62,12 +38,20 @@ func (s *Service) commentNotifyRows(ctx context.Context, t *domain.CommentTarget
 		recipients[*t.OwnerID] = "ludiskus.comment.created"
 	}
 	if c.ParentID != nil {
-		if parent, err := s.repo.GetComment(ctx, *c.ParentID); err == nil && parent.AuthorProfileUUID != nil {
+		parent, err := s.repo.GetComment(ctx, *c.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent.AuthorProfileUUID != nil {
 			recipients[*parent.AuthorProfileUUID] = "ludiskus.comment.replied"
 		}
 	}
 	if p.Notify.Participants {
-		if participants, err := s.repo.ListCommentParticipants(ctx, t.ID); err == nil {
+		participants, err := s.repo.ListCommentParticipants(ctx, t.ID)
+		if err != nil {
+			return nil, err
+		}
+		{
 			for _, part := range participants {
 				if !part.Muted && part.Reason != "mentioned" {
 					recipients[part.ProfileUUID] = "ludiskus.comment.replied"
@@ -83,7 +67,12 @@ func (s *Service) commentNotifyRows(ctx context.Context, t *domain.CommentTarget
 		}
 		out = append(out, repository.CommentNotifyInsert{EventType: event, RecipientProfileUUID: u, ActorProfileUUID: c.AuthorProfileUUID, FlushAfter: flush})
 	}
-	return out
+	for u := range mentionSet {
+		if u != author {
+			out = append(out, repository.CommentNotifyInsert{EventType: "ludiskus.comment.mentioned", RecipientProfileUUID: u, ActorProfileUUID: c.AuthorProfileUUID, FlushAfter: time.Now()})
+		}
+	}
+	return out, nil
 }
 
 func commentURL(t *domain.CommentTarget, id string) string {
@@ -99,41 +88,54 @@ func (s *Service) FlushCommentNotify(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	type group struct {
-		event, recipient, target string
-		rows                     []int64
-		comments                 []string
-		latest                   string
-		actor                    *string
+		event, recipient, target, token string
+		latestAt                        time.Time
+		rows                            []int64
+		comments                        []string
+		latest                          string
+		actor                           *string
 	}
 	groups := map[string]*group{}
 	for _, row := range rows {
 		k := row.EventType + ":" + row.RecipientProfileUUID + ":" + row.TargetID
 		g := groups[k]
 		if g == nil {
-			g = &group{event: row.EventType, recipient: row.RecipientProfileUUID, target: row.TargetID}
+			g = &group{event: row.EventType, recipient: row.RecipientProfileUUID, target: row.TargetID, token: row.ClaimToken}
 			groups[k] = g
 		}
 		g.rows = append(g.rows, row.ID)
 		g.comments = append(g.comments, row.CommentID)
-		if row.CommentID > g.latest {
+		if g.latest == "" || row.OccurredAt.After(g.latestAt) {
+			g.latestAt = row.OccurredAt
 			g.latest = row.CommentID
 			g.actor = row.ActorProfileUUID
 		}
 	}
-	processed := []int64{}
+	processed := 0
 	for _, g := range groups {
 		t, e := s.repo.GetCommentTargetByID(ctx, g.target)
 		if e != nil {
-			processed = append(processed, g.rows...)
-			continue
+			return processed, e
 		}
 		if _, _, e = s.ensureCommentReadable(ctx, t.Ref(), g.recipient); e != nil {
-			processed = append(processed, g.rows...)
+			if !errors.Is(e, domain.ErrForbidden) && !errors.Is(e, domain.ErrNotFound) && !errors.Is(e, domain.ErrResourceGone) {
+				return processed, e
+			}
+			if e = s.repo.CompleteCommentNotify(ctx, g.rows, g.token, "", "", nil, 0); e != nil {
+				return processed, e
+			}
+			processed += len(g.rows)
 			continue
 		}
 		latest, e := s.repo.GetComment(ctx, g.latest)
 		if e != nil {
-			processed = append(processed, g.rows...)
+			return processed, e
+		}
+		if latest.Status != domain.CommentPublished {
+			if e = s.repo.CompleteCommentNotify(ctx, g.rows, g.token, "", "", nil, 0); e != nil {
+				return processed, e
+			}
+			processed += len(g.rows)
 			continue
 		}
 		actorName := ""
@@ -143,14 +145,18 @@ func (s *Service) FlushCommentNotify(ctx context.Context) (int, error) {
 			}
 		}
 		data, _ := json.Marshal(map[string]any{"actor": actorName, "count": len(g.comments), "others": max(0, len(g.comments)-1), "resourceTitle": t.Title, "excerpt": excerptOf(latest.BodyMD), "url": commentURL(t, latest.ID)})
-		key := fmt.Sprintf("cmt:%s:%s:%s:%s", g.event, g.recipient, g.target, g.latest)
-		s.enqueueEvent(ctx, notify.Event{EventType: g.event, IdempotencyKey: &key, Data: data, Recipients: []notify.Recipient{{ProfileUUID: g.recipient}}})
-		processed = append(processed, g.rows...)
+		sort.Slice(g.rows, func(i, j int) bool { return g.rows[i] < g.rows[j] })
+		key := fmt.Sprintf("cmt:batch:%x", sha256.Sum256([]byte(fmt.Sprint(g.rows))))
+		payload, e := json.Marshal(notify.Event{EventType: g.event, IdempotencyKey: &key, Data: data, Recipients: []notify.Recipient{{ProfileUUID: g.recipient}}})
+		if e != nil {
+			return processed, e
+		}
+		if e = s.repo.CompleteCommentNotify(ctx, g.rows, g.token, g.event, key, payload, s.cfg.OutboxMaxAttempts); e != nil {
+			return processed, e
+		}
+		processed += len(g.rows)
 	}
-	if err = s.repo.DeleteCommentNotify(ctx, processed); err != nil {
-		return 0, err
-	}
-	return len(processed), nil
+	return processed, nil
 }
 
 type CommentInboxItem struct {

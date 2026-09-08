@@ -70,7 +70,10 @@ func (s *Service) CreateSystemComment(ctx context.Context, serviceCode string, i
 	}
 	notifyPolicy := p
 	notifyPolicy.Notify.Owner = false
-	notifications := s.commentNotifyRows(ctx, t, &c, notifyPolicy, nil)
+	notifications, err := s.commentNotifyRows(ctx, t, &c, notifyPolicy, nil)
+	if err != nil {
+		return nil, false, err
+	}
 	out, created, err := s.repo.InsertComment(ctx, repository.InsertCommentInput{Comment: c, SpaceUUID: t.SpaceUUID, Notifications: notifications})
 	if err != nil {
 		return nil, false, err
@@ -123,7 +126,10 @@ func (s *Service) S2SModerateComment(ctx context.Context, serviceCode, id, actio
 	if action == "approve" {
 		policy, _ = s.commentPolicy(ctx, t)
 		mentions, _ = s.repo.CommentMentions(ctx, c.ID)
-		notifications = s.commentNotifyRows(ctx, t, c, policy, mentions)
+		notifications, err = s.commentNotifyRows(ctx, t, c, policy, mentions)
+		if err != nil {
+			return nil, err
+		}
 	}
 	out, err := s.repo.TransitionCommentByServiceWithNotify(ctx, id, status, serviceCode, actorProfile, reason, notifications)
 	if err == nil {

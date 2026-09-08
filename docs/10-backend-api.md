@@ -128,6 +128,37 @@ S2S cho Lufami:
   không cần là thành viên); chỉ sửa/xoá nội dung **của chính mình** trừ khi là
   moderator của Space đó.
 - **Moderator/owner/admin** (theo `space_member_cache` + `space_moderators`):
-  endpoint `/moderation/*`, lock/pin/move, cấu hình `/spaces/{space}/settings`.
+  endpoint `/moderation/*`, lock/pin/move. Cấu hình `/spaces/{space}/settings`
+  và quản lý quyền Board thuộc owner/admin; moderator không tự cấp thêm quyền.
 - **Service token (client-credentials)**: chỉ `/api/v1/system/*` cho Space được
   phép; không truy cập dữ liệu người dùng khác.
+
+## Cập nhật contract diễn đàn 2026-09-08
+
+Các route dưới đây có prefix `/api/v1` và auth người dùng (trừ metrics):
+
+| Route | Contract |
+|---|---|
+| `GET /healthz`, `GET /readyz` | Alias cho BFF; bản ngoài prefix vẫn phục vụ probe nội bộ. |
+| `GET /spaces/{space}/capabilities` | `canManage`, `canModerate`, `canPost` cho giao diện. |
+| `GET /spaces/{space}/members?q=` | Tìm thành viên để mention/chọn assignee/tác giả; tối đa 20. |
+| `POST /spaces/{space}/preview` | `{bodyMd}` → `{html}` sanitize phía server. |
+| `GET /spaces/{space}/moderation/items?page=` | Queue forum riêng, nội dung sanitize; moderator. |
+| `PUT /topics/{id}/assignee` | `{assigneeProfileUuid: UUID hoặc null}`; moderator, Board support. |
+| `POST /topics/{id}/resolve`, `/reopen` | Tác giả/moderator; Q&A resolve cần đáp án. |
+| `GET /search` | Thêm tag/status/kind/from/until, matchedPostId/snippet; xem biên bản nghiệm thu. |
+| `GET /metrics` (ngoài prefix) | Prometheus aggregate/histogram; dùng nội bộ. |
+
+Topic trả capability và `boardKind`, `assigneeProfileUuid`; Post trả `canEdit`,
+`canDelete`. `unanswered` nghĩa là question chưa có đáp án được chọn. PATCH Board
+chỉ thay trường có gửi, giữ metadata còn lại. Xem [15](15-nghiem-thu-dien-dan.md)
+để phân biệt contract đã test và gate runtime còn mở.
+
+## Thiết kế bổ sung: API quyền Board
+
+Dự kiến `GET/PUT /api/v1/boards/{id}/permissions` cho owner/admin và
+`GET /api/v1/boards/{id}/capabilities` cho quyền người đang gọi. PUT dùng
+`expectedVersion`; guard ghi và các truy vấn kiểm duyệt áp Board thực của target.
+
+**Trạng thái: thiết kế, chưa triển khai.** Contract và tiêu chí chi tiết:
+[16 — Phân quyền theo Board](16-phan-quyen-board.md).

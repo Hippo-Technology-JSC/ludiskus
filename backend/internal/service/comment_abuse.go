@@ -24,6 +24,12 @@ func (s *Service) checkCommentRate(ctx context.Context, profile, targetID, bodyH
 		return nil
 	}
 	now := time.Now().UTC()
+	// New profiles share the same counters with stricter limits for the configured age window.
+	if author, err := s.ident.Profile(ctx, profile); err == nil && author != nil && author.CreatedAt != nil && s.cfg.CommentNewProfileHours > 0 && now.Sub(*author.CreatedAt) < time.Duration(s.cfg.CommentNewProfileHours)*time.Hour {
+		p.RateLimit.PerMinute = positiveMin(p.RateLimit.PerMinute, 2)
+		p.RateLimit.PerHour = positiveMin(p.RateLimit.PerHour, 20)
+		p.RateLimit.PerTargetPerHour = positiveMin(p.RateLimit.PerTargetPerHour, 10)
+	}
 	if override, err := s.redis.Get(ctx, "cmt:rl:override:"+profile).Result(); err == nil && override == "throttled" {
 		p.RateLimit.PerMinute = positiveMin(p.RateLimit.PerMinute, 1)
 		p.RateLimit.PerHour = positiveMin(p.RateLimit.PerHour, 10)

@@ -1,5 +1,18 @@
 # 15 — Lộ trình
 
+> **Cập nhật 2026-09-08:** các khoảng thiếu policy/batch/queue/editor/notification
+> đã được bổ sung; xem [nghiệm thu hiện tại](17-nghiem-thu.md). Có 9 nhóm integration,
+> 6 unit test và 10 Chrome fixture checks đạt. Phiên BFF/chuông/email/bốn service
+> thật vẫn còn mở; không tự đánh dấu toàn bộ checklist kế hoạch là hoàn tất.
+
+
+> **Đối chiếu code 2026-09-07:** [Tiến độ thực tế](../14-tien-do-thuc-te.md).
+> Cả GĐ0–GĐ7 đã có code, nhưng còn khoảng thiếu và gate chưa nghiệm thu. Checkbox
+> bên dưới giữ tiêu chí kế hoạch gốc; `[ ]` không đồng nghĩa chưa viết code,
+> và không đánh `[x]` khi chưa kiểm chứng toàn bộ yêu cầu. Bảng đối chiếu là nguồn
+> trạng thái hiện tại. LC-0.7 dùng contract Passport `sub=aud`; `sort=top` đã được
+> mở ở GĐ7 nên tiêu chí trả 400 của GĐ1 không còn là hành vi đích cuối cùng.
+
 Tám giai đoạn, mỗi giai đoạn là một **lát cắt dọc** chạy được end-to-end. Tiêu chí "xong" là
 điều kiện **chặn** sang giai đoạn sau, không phải danh sách mong muốn. Mỗi giai đoạn: `go build
 ./...` + `go vet ./...` + test sạch, **verify SQL thật** trên Postgres của compose, cập nhật

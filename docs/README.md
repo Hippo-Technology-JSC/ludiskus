@@ -13,6 +13,10 @@ trong app **tm** đi qua **BFF**.
 
 ## Mục lục
 
+> **Cập nhật diễn đàn 2026-09-08:** xem [tiến độ thực tế](14-tien-do-thuc-te.md)
+> và [biên bản diễn đàn](15-nghiem-thu-dien-dan.md). LuComment đã được triển khai tiếp,
+> xem [nghiệm thu LuComment](comment/17-nghiem-thu.md).
+
 | # | Tài liệu | Nội dung |
 |---|----------|----------|
 | 01 | [Tổng quan](01-tong-quan.md) | Mục tiêu, phạm vi, vai trò, yêu cầu phi chức năng |
@@ -28,12 +32,15 @@ trong app **tm** đi qua **BFF**.
 | 11 | [Frontend (tm + BFF)](11-frontend.md) | Route, proxy BFF, màn hình |
 | 12 | [Triển khai Docker](12-trien-khai-docker.md) | compose, DB, OAuth client, bucket, biến môi trường |
 | 13 | [Lộ trình](13-lo-trinh.md) | Các giai đoạn triển khai |
+| 14 | [Tiến độ thực tế](14-tien-do-thuc-te.md) | Đối chiếu code với kế hoạch, khoảng thiếu, bằng chứng kiểm tra và công việc còn lại |
+| 15 | [Nghiệm thu diễn đàn](15-nghiem-thu-dien-dan.md) | Kết quả PostgreSQL/MinIO/Chrome, runtime và các gate còn mở |
+| 16 | [Phân quyền theo Board](16-phan-quyen-board.md) | Thiết kế quyền tạo chủ đề, trả lời, moderator từng Board và tiêu chí nghiệm thu (chưa triển khai) |
 
 ## Phân hệ
 
 | Phân hệ | Tài liệu | Nội dung |
 |---------|----------|----------|
-| **LuComment** | [docs/comment/](comment/README.md) | Bình luận **dùng chung cho toàn hệ sinh thái**: mọi service nhúng được một luồng bình luận dưới bất kỳ nội dung nào (`service:type:id`) mà không tạo bảng riêng và không tạo topic diễn đàn. Đã triển khai GĐ0–GĐ7; bộ 17 tài liệu giữ cả thiết kế, contract và trạng thái nghiệm thu. |
+| **LuComment** | [docs/comment/](comment/README.md) | Bình luận **dùng chung cho toàn hệ sinh thái**, định danh `service:type:id`, không tạo topic diễn đàn. Có code ở GĐ0–GĐ7; còn khoảng thiếu và gate nghiệm thu theo [đối chiếu hiện tại](14-tien-do-thuc-te.md). |
 
 ## Mục tiêu sử dụng
 

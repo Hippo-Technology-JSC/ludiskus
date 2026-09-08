@@ -11,14 +11,7 @@ import (
 
 func (s *Service) PublicCommentThread(ctx context.Context, ref domain.ResourceRef) (*CommentThread, error) {
 	key := "cmt:pub:" + ref.String() + ":thread"
-	if s.redis != nil {
-		if raw, err := s.redis.Get(ctx, key).Bytes(); err == nil {
-			var cached CommentThread
-			if json.Unmarshal(raw, &cached) == nil {
-				return &cached, nil
-			}
-		}
-	}
+	// Recheck current visibility and policy before returning any public cached data.
 	out, err := s.CommentThread(ctx, ref, "")
 	if err != nil {
 		slog.Warn("public comment thread unavailable", "ref", ref.String(), "err", err)

@@ -110,6 +110,13 @@ type Topic struct {
 	Tags                []string       `json:"tags,omitempty"`
 	Rank                float64        `json:"rank,omitempty"`
 	Highlight           string         `json:"highlight,omitempty"`
+	AssigneeProfileUUID *string        `json:"assigneeProfileUuid,omitempty"`
+	MatchedPostID       *string        `json:"matchedPostId,omitempty"`
+	Snippet             string         `json:"snippet,omitempty"`
+	CanModerate         bool           `json:"canModerate"`
+	CanManage           bool           `json:"canManage"`
+	CanReply            bool           `json:"canReply"`
+	BoardKind           string         `json:"boardKind,omitempty"`
 }
 
 // --- Post -------------------------------------------------------------------
@@ -130,6 +137,8 @@ type Post struct {
 	UpdatedAt         time.Time      `json:"updatedAt"`
 	Author            *CachedProfile `json:"author,omitempty"`
 	Attachments       []Attachment   `json:"attachments,omitempty"`
+	CanEdit           bool           `json:"canEdit"`
+	CanDelete         bool           `json:"canDelete"`
 }
 
 // --- Tag --------------------------------------------------------------------

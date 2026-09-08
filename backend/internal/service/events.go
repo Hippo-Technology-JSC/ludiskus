@@ -35,11 +35,7 @@ func ptr(s string) *string { return &s }
 
 // topicURL dựng deep-link cho thông báo.
 func (s *Service) topicURL(space *domain.CachedSpace, t *domain.Topic, postID string) string {
-	scode := t.SpaceUUID
-	if space != nil && space.Code != nil && *space.Code != "" {
-		scode = *space.Code
-	}
-	u := fmt.Sprintf("/ludiskus/s/%s/t/%s", scode, t.Slug)
+	u := fmt.Sprintf("/ludiskus/s/%s/t/%s", t.SpaceUUID, t.ID)
 	if postID != "" {
 		u += "#post-" + postID
 	}

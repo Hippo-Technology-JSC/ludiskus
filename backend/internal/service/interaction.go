@@ -78,10 +78,11 @@ func (s *Service) InteractionContext(
 	ownerID := topic.AuthorProfileUUID
 	title := topic.Title
 	summary := ""
-	path := fmt.Sprintf("/ludiskus/s/%s/t/%s", topic.SpaceUUID, topic.Slug)
+	path := fmt.Sprintf("/ludiskus/s/%s/t/%s", topic.SpaceUUID, topic.ID)
 	if post != nil {
 		ownerID = post.AuthorProfileUUID
 		summary = excerptOf(post.BodyMD)
+		path += "#post-" + post.ID
 	}
 	spaceUUID := topic.SpaceUUID
 	return &domain.InteractionContext{

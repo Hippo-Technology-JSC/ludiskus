@@ -3,6 +3,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -28,6 +29,19 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
+	metrics := newForumMetrics(log)
+	r.Use(metrics.wrap)
+	r.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		values, err := s.svc.ForumMetrics(r.Context())
+		if err != nil {
+			http.Error(w, "metrics unavailable", 503)
+			return
+		}
+		metrics.serve(w, r)
+		for _, name := range []string{"topics", "posts", "moderation_pending", "outbox_pending", "outbox_failed"} {
+			fmt.Fprintf(w, "# TYPE ludiskus_forum_%s gauge\nludiskus_forum_%s %d\n", name, name, values[name])
+		}
+	})
 
 	r.Get("/healthz", s.healthz)
 	r.Get("/readyz", s.readyz)
@@ -76,6 +90,8 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Post("/reconcile", s.uiAdminCommentReconcile)
 			})
 
+			r.Get("/healthz", s.healthz)
+			r.Get("/readyz", s.readyz)
 			// Space-forum
 			r.Get("/spaces", s.listSpaces)
 			r.Route("/spaces/{space}", func(r chi.Router) {
@@ -86,10 +102,14 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Post("/boards", s.createBoard)
 				r.Get("/topics", s.listSpaceTopics)
 				r.Get("/tags", s.listTags)
+				r.Get("/members", s.forumMembers)
+				r.Get("/capabilities", s.forumCapabilities)
+				r.Post("/preview", s.forumPreview)
 				r.Get("/moderators", s.listModerators)
 				r.Post("/moderators", s.addModerator)
 				r.Delete("/moderators", s.removeModerator)
 				r.Get("/moderation/queue", s.moderationQueue)
+				r.Get("/moderation/items", s.forumQueue)
 				r.Get("/reports", s.listReports)
 			})
 
@@ -107,6 +127,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Patch("/", s.updateTopic)
 				r.Delete("/", s.deleteTopic)
 				r.Post("/{action}", s.topicAction) // lock|unlock|pin|unpin
+				r.Put("/assignee", s.assignForumTopic)
 				r.Get("/posts", s.listPosts)
 				r.Post("/posts", s.createReply)
 				r.Post("/report", s.reportTopic)

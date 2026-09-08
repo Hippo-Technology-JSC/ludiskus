@@ -59,3 +59,21 @@ hiển thị mờ ("Người dùng đã rời").
 
 FE ẩn/hiện nút theo quyền trả về cùng tài nguyên (`can_post`, `can_moderate`,
 `is_member`) — backend vẫn là nơi cưỡng chế (xem [10 §10.12](10-backend-api.md)).
+
+## Cập nhật diễn đàn 2026-09-08
+
+`components/ludiskus/ForumEditor` dùng chung toolbar, preview server, mention,
+Ctrl/Cmd Enter và drop tệp; `BoardManager` nằm trong Settings. Topic dựng cây reply,
+phân trang 30 bài và tự tải tới post anchor; refresh giữ các trang đã tải. Search
+có debounce/bộ lọc/phân trang. Settings/Moderation/Space dùng capability từ backend;
+queue hiển thị nội dung trước khi duyệt. Đã có 6 unit test và 11 Chrome fixture checks,
+chưa thay thế phiên đăng nhập thật: [biên bản](15-nghiem-thu-dien-dan.md).
+
+## Thiết kế bổ sung: cấu hình quyền chuyên mục
+
+Quản lý chuyên mục có mục Phân quyền: chọn ai tạo chủ đề, ai trả lời và moderator
+trực tiếp; staff Space kế thừa hiển thị riêng. UI dựa trên capability từng Board,
+bao gồm lối vào hàng chờ cho moderator chỉ quản một Board.
+
+**Trạng thái: thiết kế, chưa triển khai.** Contract và tiêu chí chi tiết:
+[16 — Phân quyền theo Board](16-phan-quyen-board.md).

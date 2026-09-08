@@ -50,8 +50,8 @@ lồng một cấp (`parent_id`).
 | `description_html` | text? | HTML đã render & sanitize từ `description_md` |
 | `kind` | enum | `forum` \| `qna` \| `support` \| `announcement` — gợi ý UI & hành vi mặc định |
 | `position` | int | Thứ tự sắp xếp |
-| `is_locked` | bool | Khoá đăng topic mới |
-| `min_role` | enum | Vai trò tối thiểu để đăng (`member`/`moderator`/`admin`) |
+| `is_locked` | bool | Khoá tạo Topic và trả lời trong Board |
+| `min_role` | enum | Trường legacy (`member`/`moderator`/`admin`), hiện chưa enforce khi đăng; thay thế dự kiến bằng [policy Board](16-phan-quyen-board.md) |
 | `topic_count` / `post_count` | int | Đếm (cập nhật nền) |
 | `last_activity_at` | timestamptz? | Hoạt động gần nhất (sắp xếp) |
 | `created_at`/`updated_at` | timestamptz | |
@@ -230,3 +230,12 @@ Mọi **nội dung văn bản dài** trong ludiskus dùng **Markdown**, theo cù
 
 FE chỉ hiển thị `*_html` đã sanitize; trình soạn dùng chung một editor Markdown
 có preview cho Board/Topic/Post — [11 §11.3](11-frontend.md).
+
+## 3.13 Thiết kế bổ sung: quyền theo Board
+
+Board sẽ có policy tạo Topic/trả lời độc lập và danh sách moderator trực tiếp.
+Policy chỉ thu hẹp `post_policy` Space; staff Space giữ quyền kiểm duyệt kế thừa.
+`min_role` hiện có chưa được enforce, không tự kích hoạt khi migrate.
+
+**Trạng thái: thiết kế, chưa triển khai.** Contract và tiêu chí chi tiết:
+[16 — Phân quyền theo Board](16-phan-quyen-board.md).

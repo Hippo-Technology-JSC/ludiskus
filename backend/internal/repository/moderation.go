@@ -81,8 +81,12 @@ const modCols = `id, space_uuid, target_type, target_id, source, state, assignee
 	decided_by, decided_at, note, created_at`
 
 func scanModItem(row pgx.Row, m *domain.ModerationItem) error {
-	return row.Scan(&m.ID, &m.SpaceUUID, &m.TargetType, &m.TargetID, &m.Source, &m.State,
-		&m.AssigneeProfileUUID, &m.DecidedBy, &m.DecidedAt, &m.Note, &m.CreatedAt)
+	var space *string
+	err := row.Scan(&m.ID, &space, &m.TargetType, &m.TargetID, &m.Source, &m.State, &m.AssigneeProfileUUID, &m.DecidedBy, &m.DecidedAt, &m.Note, &m.CreatedAt)
+	if space != nil {
+		m.SpaceUUID = *space
+	}
+	return err
 }
 
 func (r *Repo) CreateModerationItem(ctx context.Context, m domain.ModerationItem) (*domain.ModerationItem, error) {

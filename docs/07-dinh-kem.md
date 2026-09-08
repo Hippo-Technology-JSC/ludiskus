@@ -68,3 +68,12 @@ LuDiskus redeem token bằng OAuth service:
 - mọi bản copy kiểm size/checksum, tạo attachment `pending`, sau đó complete
   selection;
 - `personal_file_imports` giữ idempotency nên retry không tạo attachment đôi.
+
+## Kiểm chứng diễn đàn 2026-09-08
+
+Trước khi tạo Topic/Reply, server kiểm Stat object MinIO: size/MIME phải khớp khai
+báo và giới hạn. Tệp chỉ được gắn nếu đúng uploader/Space, pending và chưa gắn
+Post/Comment; thao tác gắn nằm cùng transaction tạo bài. URL tệp pending chỉ cấp
+uploader, URL tệp của bài theo quyền xem Topic/Post. MinIO thật đã kiểm presign,
+PUT, gắn/reuse và quyền; xem [15](15-nghiem-thu-dien-dan.md). Antivirus, thu hồi
+URL đã cấp tức thời và nghiệm thu Personal Files thật chưa được đóng trong đợt này.

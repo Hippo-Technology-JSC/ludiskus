@@ -49,8 +49,18 @@ func (r *Repo) InsertComment(ctx context.Context, in InsertCommentInput) (*domai
 	}
 	defer tx.Rollback(ctx)
 	if in.Comment.IdempotencyKey != nil {
+		// Serialize retries before lookup: a unique violation aborts the transaction,
+		// so retrying SELECT after a conflicting INSERT cannot recover it.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, *in.Comment.IdempotencyKey); err != nil {
+			return nil, false, err
+		}
+	}
+	if in.Comment.IdempotencyKey != nil {
 		var old domain.Comment
 		if err := scanComment(tx.QueryRow(ctx, `SELECT `+commentCols+` FROM comments WHERE idempotency_key=$1`, *in.Comment.IdempotencyKey), &old); err == nil {
+			if old.TargetID != in.Comment.TargetID || old.AuthorKind != in.Comment.AuthorKind || !equalCommentString(old.AuthorProfileUUID, in.Comment.AuthorProfileUUID) || !equalCommentString(old.SourceService, in.Comment.SourceService) || old.BodyHash != in.Comment.BodyHash {
+				return nil, false, domain.ErrConflict
+			}
 			return &old, false, nil
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, false, err
@@ -79,11 +89,6 @@ func (r *Repo) InsertComment(ctx context.Context, in InsertCommentInput) (*domai
 		in.Comment.AuthorSpaceUUID, in.Comment.SourceService, in.Comment.BodyMD, in.Comment.BodyHTML,
 		in.Comment.BodyHash, in.Comment.MarkdownMode, in.Comment.Status, in.Comment.ModerationSource,
 		in.Comment.Anchor, in.Comment.IdempotencyKey), &out)
-	if isUnique(err) && in.Comment.IdempotencyKey != nil {
-		if e := scanComment(tx.QueryRow(ctx, `SELECT `+commentCols+` FROM comments WHERE idempotency_key=$1`, *in.Comment.IdempotencyKey), &out); e == nil {
-			return &out, false, nil
-		}
-	}
 	if err != nil {
 		return nil, false, err
 	}
@@ -335,7 +340,7 @@ func (r *Repo) TransitionCommentByServiceWithNotify(ctx context.Context, id, new
 	return r.transitionComment(ctx, id, newStatus, actorProfile, reason, notifications, "service:"+serviceCode)
 }
 
-func (r *Repo) transitionComment(ctx context.Context, id, newStatus, actor, reason string, notifications []CommentNotifyInsert, auditActor string) (*domain.Comment, error) {
+func (r *Repo) transitionComment(ctx context.Context, id, newStatus, actor, reason string, notifications []CommentNotifyInsert, auditActor string, decisions ...commentModerationDecision) (*domain.Comment, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -349,6 +354,25 @@ func (r *Repo) transitionComment(ctx context.Context, id, newStatus, actor, reas
 	}
 	if old.Status == domain.CommentDeleted {
 		return nil, domain.ErrConflict
+	}
+	if len(decisions) > 0 {
+		d := decisions[0]
+		decision := "approved"
+		if newStatus == "rejected" {
+			decision = "rejected"
+		}
+		tag, e := tx.Exec(ctx, `UPDATE moderation_items SET state=$2,decided_by=$3,decided_at=now(),note=$4 WHERE id=$1 AND state='pending' AND target_type='comment' AND target_id=$5`, d.itemID, decision, nullUUID(actor), reason, id)
+		if e != nil {
+			return nil, e
+		}
+		if tag.RowsAffected() != 1 {
+			return nil, domain.ErrNotFound
+		}
+		if len(d.payload) > 0 {
+			if _, e = tx.Exec(ctx, `INSERT INTO outbox(event_type,idempotency_key,payload,max_attempts) VALUES('ludiskus.comment.moderated',$1,$2,$3) ON CONFLICT(idempotency_key) DO NOTHING`, d.key, d.payload, d.attempts); e != nil {
+				return nil, e
+			}
+		}
 	}
 	cD, rD, pD := domain.CountDelta(old.Status, newStatus, old.ParentID == nil)
 	var out domain.Comment
@@ -524,4 +548,26 @@ func trim(v string) string {
 		v = v[:len(v)-1]
 	}
 	return v
+}
+
+func (r *Repo) CommentByIdempotency(ctx context.Context, key string) (*domain.Comment, error) {
+	var c domain.Comment
+	err := scanComment(r.pool.QueryRow(ctx, `SELECT `+commentCols+` FROM comments WHERE idempotency_key=$1`, key), &c)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	return &c, err
+}
+func equalCommentString(a, b *string) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
+}
+
+type commentModerationDecision struct {
+	itemID, key string
+	payload     []byte
+	attempts    int
+}
+
+func (r *Repo) DecideCommentModeration(ctx context.Context, itemID, commentID, status, actor, note string, notifications []CommentNotifyInsert, payload []byte, key string, attempts int) (*domain.Comment, error) {
+	return r.transitionComment(ctx, commentID, status, actor, note, notifications, "", commentModerationDecision{itemID: itemID, key: key, payload: payload, attempts: attempts})
 }

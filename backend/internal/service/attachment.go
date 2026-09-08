@@ -103,14 +103,38 @@ func (s *Service) AttachmentURL(ctx context.Context, profileUUID, id string) (st
 	if err != nil {
 		return "", err
 	}
+	publicForumFile := false
 	if att.CommentID != nil {
 		if _, _, err := s.GetComment(ctx, *att.CommentID, profileUUID); err != nil {
 			return "", err
 		}
-	} else if _, err := s.requireView(ctx, att.SpaceUUID, profileUUID); err != nil {
-		return "", err
+	} else {
+		if _, err := s.requireView(ctx, att.SpaceUUID, profileUUID); err != nil {
+			return "", err
+		}
+		if att.PostID == nil {
+			if att.UploaderProfileUUID != profileUUID {
+				return "", domain.ErrForbidden
+			}
+		} else {
+			post, err := s.repo.GetPost(ctx, *att.PostID)
+			if err != nil {
+				return "", err
+			}
+			topic, err := s.repo.GetTopic(ctx, post.TopicID)
+			if err != nil {
+				return "", err
+			}
+			if err = s.readableForumTopic(ctx, topic, profileUUID); err != nil {
+				return "", err
+			}
+			publicForumFile = post.Status == domain.StatusPublished && (topic.Status == domain.StatusPublished || topic.Status == domain.StatusLocked)
+			if post.Status == domain.StatusDeleted || (post.Status != domain.StatusPublished && post.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, post.SpaceUUID, profileUUID))) {
+				return "", domain.ErrNotFound
+			}
+		}
 	}
-	if att.CommentID == nil && s.spaceIsPublic(ctx, att.SpaceUUID) {
+	if publicForumFile && s.spaceIsPublic(ctx, att.SpaceUUID) {
 		return s.store.PublicURL(att.ObjectKey), nil
 	}
 	return s.store.PresignGet(ctx, att.ObjectKey, att.FileName)
