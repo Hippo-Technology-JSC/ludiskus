@@ -130,6 +130,7 @@ func (r *Repo) GetCommentTargetByID(ctx context.Context, id string) (*domain.Com
 }
 
 func (r *Repo) UpsertCommentTarget(ctx context.Context, t domain.CommentTarget) (*domain.CommentTarget, error) {
+	t.CanonicalPath = domain.SanitizeCanonicalPath(t.CanonicalPath)
 	if len(t.Capabilities) == 0 {
 		t.Capabilities = json.RawMessage(`{}`)
 	}

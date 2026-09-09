@@ -76,6 +76,7 @@ func (r *Resolver) Resolve(ctx context.Context, ref domain.ResourceRef) (*Result
 		if raw, err := r.redis.Get(ctx, cacheKey(ref)).Bytes(); err == nil {
 			var out Result
 			if json.Unmarshal(raw, &out) == nil {
+				out.CanonicalPath = domain.SanitizeCanonicalPath(out.CanonicalPath)
 				return &out, nil
 			}
 		}
@@ -178,9 +179,7 @@ func validateResult(ref domain.ResourceRef, v *Result) error {
 	if !validVis[v.Visibility] || !validState[v.State] {
 		return ErrInvalid
 	}
-	if v.CanonicalPath != "" && (!strings.HasPrefix(v.CanonicalPath, "/") || strings.HasPrefix(v.CanonicalPath, "//") || strings.Contains(v.CanonicalPath, "..") || len(v.CanonicalPath) > 301) {
-		return ErrInvalid
-	}
+	v.CanonicalPath = domain.SanitizeCanonicalPath(v.CanonicalPath)
 	if len([]rune(v.Title)) > 200 {
 		v.Title = string([]rune(v.Title)[:200])
 	}

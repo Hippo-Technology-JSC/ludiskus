@@ -47,3 +47,25 @@ func TestCountDelta(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeCanonicalPath(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"/luprojet/15b0d2e5-9d9a-4335-ad97-bf4d78896c25", "/luprojet/15b0d2e5-9d9a-4335-ad97-bf4d78896c25"},
+		{"/luprojet/15b0d2e5-9d9a-4335-ad97-bf4d78896c25?tab=reports&date=2026-09-09", "/luprojet/15b0d2e5-9d9a-4335-ad97-bf4d78896c25"},
+		{"/luprojet/15b0d2e5-9d9a-4335-ad97-bf4d78896c25#reports", "/luprojet/15b0d2e5-9d9a-4335-ad97-bf4d78896c25"},
+		{"//invalid/double/slash", ""},
+		{"../relative/path", ""},
+		{"https://evil.example/x", ""},
+		{"invalid_without_slash", ""},
+	}
+	for _, tc := range cases {
+		got := SanitizeCanonicalPath(tc.input)
+		if got != tc.want {
+			t.Errorf("SanitizeCanonicalPath(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}

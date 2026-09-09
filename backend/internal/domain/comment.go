@@ -40,7 +40,27 @@ var (
 	serviceCodeRE  = regexp.MustCompile(`^[a-z][a-z0-9_]{1,39}$`)
 	resourceTypeRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,59}$`)
 	resourceIDRE   = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,100}$`)
+	canonicalPathRE = regexp.MustCompile(`^/[A-Za-z0-9/_.:-]*$`)
 )
+
+// SanitizeCanonicalPath ensures canonical_path adheres strictly to
+// the DB check constraint: empty string OR (length <= 301 AND ^/[A-Za-z0-9/_.:-]*$).
+// Query parameters and URL fragments are automatically stripped.
+func SanitizeCanonicalPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	if idx := strings.IndexAny(p, "?#"); idx != -1 {
+		p = p[:idx]
+	}
+	if len(p) > 301 || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.Contains(p, "..") {
+		return ""
+	}
+	if !canonicalPathRE.MatchString(p) {
+		return ""
+	}
+	return p
+}
 
 type ResourceRef struct {
 	Service string `json:"service"`

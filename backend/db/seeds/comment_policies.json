@@ -10,7 +10,7 @@
     {"service":"lukomik","types":["comic","chapter","joke"],"config":{"who_can_comment":"authenticated","max_depth":1,"markdown":"plain","moderation_mode":"post","public_read":true}},
     {"service":"luxtory","types":["article","document","page"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"rich","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":false},"public_read":true}},
     {"service":"lubo","types":["boardgame","scenario","ruleset","session","room"],"config":{"who_can_comment":"members","max_depth":2,"markdown":"basic","moderation_mode":"none"}},
-    {"service":"luprojet","types":["project","doc","update","task"],"config":{"who_can_comment":"members","max_depth":2,"markdown":"rich","moderation_mode":"none","attachments":{"enabled":true,"max_per_comment":3,"images_only":false}}},
+    {"service":"luprojet","types":["project","doc","update","task","daily_report"],"config":{"who_can_comment":"members","max_depth":2,"markdown":"rich","moderation_mode":"none","attachments":{"enabled":true,"max_per_comment":3,"images_only":false}}},
     {"service":"luservit","types":["service","provider","service_package"],"config":{"who_can_comment":"authenticated","max_depth":1,"markdown":"basic","moderation_mode":"post","public_read":true}},
     {"service":"luwep","types":["page","post","block"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"pre","public_read":true}},
     {"service":"lufoodi","types":["recipe","dish","ingredient"],"config":{"who_can_comment":"authenticated","max_depth":2,"markdown":"basic","moderation_mode":"post","attachments":{"enabled":true,"max_per_comment":3,"images_only":true},"public_read":true}},
