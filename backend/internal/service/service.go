@@ -72,11 +72,11 @@ func (s *Service) RegisterHiptTasks(ctx context.Context) {
 	}
 	s.hipt.UpsertTask(ctx, "first_post", map[string]any{
 		"title": "Đăng bài viết đầu tiên", "description": "Tạo chủ đề đầu tiên trong diễn đàn",
-		"iconRef": "mdi:pencil", "actionUrl": "/ludiskus", "reward": 10, "recurrence": "once",
+		"iconRef": "bi:pencil", "actionUrl": "/ludiskus", "reward": 10, "recurrence": "once",
 	})
 	s.hipt.UpsertTask(ctx, "daily_post", map[string]any{
 		"title": "Đăng bài mỗi ngày", "description": "Tạo một chủ đề mới trong ngày",
-		"iconRef": "mdi:calendar-check", "actionUrl": "/ludiskus", "reward": 2, "recurrence": "daily",
+		"iconRef": "bi:calendar-check", "actionUrl": "/ludiskus", "reward": 2, "recurrence": "daily",
 	})
 }
 
