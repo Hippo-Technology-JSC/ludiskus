@@ -36,6 +36,10 @@ trong app **tm** đi qua **BFF**.
 | 15 | [Nghiệm thu diễn đàn](15-nghiem-thu-dien-dan.md) | Kết quả PostgreSQL/MinIO/Chrome, runtime và các gate còn mở |
 | 16 | [Phân quyền theo Board](16-phan-quyen-board.md) | Thiết kế quyền tạo chủ đề, trả lời, moderator từng Board và tiêu chí nghiệm thu (chưa triển khai) |
 
+Thiết kế liên checkout cho toolbar **Chú thích ảnh từ clipboard**, component
+`FilePicker` dùng chung và editor asset bền vững được đặt tại
+[`tm/docs/file-picker-image-annotation.md`](../../tm/docs/file-picker-image-annotation.md).
+
 ## Phân hệ
 
 | Phân hệ | Tài liệu | Nội dung |

@@ -34,3 +34,11 @@ func TestRichParity(t *testing.T) {
 		}
 	}
 }
+
+func TestRichKeepsInternalEditorAssetImage(t *testing.T) {
+	const path = "/api/ludiskus/attachments/123e4567-e89b-12d3-a456-426614174000/content"
+	out := New().Render("![Ảnh chú thích](" + path + ")")
+	if !strings.Contains(out, "<img") || !strings.Contains(out, path) {
+		t.Fatalf("internal editor image was removed: %s", out)
+	}
+}

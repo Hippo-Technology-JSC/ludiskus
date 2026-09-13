@@ -158,7 +158,11 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			// Đính kèm
 			r.Post("/attachments/presign", s.presign)
 			r.Get("/attachments/{id}/url", s.attachmentURL)
+			r.Get("/attachments/{id}/content", s.attachmentContent)
 			r.Delete("/attachments/{id}", s.deleteAttachment)
+			r.Post("/editor-assets/presign", s.presignEditorAsset)
+			r.Post("/editor-assets/{id}/complete", s.completeEditorAsset)
+			r.Post("/editor-assets/import", s.importEditorAssets)
 
 			// Kiểm duyệt
 			r.Post("/moderation/{item}/approve", s.approveModeration)

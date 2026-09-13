@@ -10,6 +10,26 @@ import (
 	"ludiskus/internal/markdown"
 )
 
+var editorAssetReferenceRE = regexp.MustCompile(`!\[[^\]\r\n]*\]\(/api/ludiskus/attachments/([0-9a-fA-F-]{36})/content(?:\s+"[^"]*")?\)`)
+var editorAssetPathRE = regexp.MustCompile(`/api/ludiskus/attachments/`)
+
+func validateEditorAssetReferences(body string, attachmentIDs []string) error {
+	matches := editorAssetReferenceRE.FindAllStringSubmatch(body, -1)
+	if len(matches) != len(editorAssetPathRE.FindAllStringIndex(body, -1)) {
+		return fmt.Errorf("%w: EDITOR_ASSET_REFERENCE_INVALID", domain.ErrValidation)
+	}
+	allowed := make(map[string]struct{}, len(attachmentIDs))
+	for _, id := range attachmentIDs {
+		allowed[strings.ToLower(id)] = struct{}{}
+	}
+	for _, match := range matches {
+		if _, ok := allowed[strings.ToLower(match[1])]; !ok {
+			return fmt.Errorf("%w: EDITOR_ASSET_NOT_ATTACHED", domain.ErrValidation)
+		}
+	}
+	return nil
+}
+
 // --- topics -----------------------------------------------------------------
 
 type TopicInput struct {
@@ -55,6 +75,9 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 	}
 	if len(in.AttachmentIDs) > s.cfg.MaxAttachments {
 		return nil, fmt.Errorf("%w: vượt số lượng đính kèm tối đa", domain.ErrValidation)
+	}
+	if err := validateEditorAssetReferences(in.BodyMD, in.AttachmentIDs); err != nil {
+		return nil, err
 	}
 
 	if err := s.validateForumAttachments(ctx, board.SpaceUUID, profileUUID, in.AttachmentIDs); err != nil {
@@ -288,6 +311,9 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 	if strings.TrimSpace(in.BodyMD) == "" {
 		return nil, fmt.Errorf("%w: bodyMd là bắt buộc", domain.ErrValidation)
 	}
+	if err := validateEditorAssetReferences(in.BodyMD, in.AttachmentIDs); err != nil {
+		return nil, err
+	}
 
 	role := s.role(ctx, t.SpaceUUID, profileUUID)
 	status, modSource, err := s.decideStatus(ctx, forum, t.BoardID, profileUUID, role, in.BodyMD)
@@ -341,7 +367,7 @@ func (s *Service) ListPosts(ctx context.Context, topicID, profileUUID string, li
 	return posts, nil
 }
 
-func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD string) (*domain.Post, error) {
+func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD string, attachmentIDs []string) (*domain.Post, error) {
 	p, err := s.repo.GetPost(ctx, postID)
 	if err != nil {
 		return nil, err
@@ -359,9 +385,25 @@ func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD st
 	if strings.TrimSpace(bodyMD) == "" {
 		return nil, fmt.Errorf("%w: bodyMd là bắt buộc", domain.ErrValidation)
 	}
+	if err := s.validateForumAttachments(ctx, p.SpaceUUID, profileUUID, attachmentIDs); err != nil {
+		return nil, err
+	}
+	existing, err := s.repo.AttachmentsForPosts(ctx, []string{postID})
+	if err != nil {
+		return nil, err
+	}
+	allIDs := make([]string, 0, len(existing[postID])+len(attachmentIDs))
+	for _, attachment := range existing[postID] {
+		allIDs = append(allIDs, attachment.ID)
+	}
+	allIDs = append(allIDs, attachmentIDs...)
+	if err := validateEditorAssetReferences(bodyMD, allIDs); err != nil {
+		return nil, err
+	}
 	html := s.md.Render(bodyMD)
 	out, err := s.repo.UpdatePost(ctx, postID, bodyMD, html)
 	if err == nil {
+		s.attachAndMention(ctx, out, p.SpaceUUID, attachmentIDs, bodyMD)
 		s.syncInteractionResource(ctx, interactionResourceType(out), postID)
 	}
 	return out, err

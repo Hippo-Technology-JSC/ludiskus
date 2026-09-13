@@ -88,11 +88,11 @@ type BoardPolicyConfig struct {
 
 // BoardPermissionDetail chứa toàn bộ cấu hình ACL và moderator của Board.
 type BoardPermissionDetail struct {
-	BoardID                         string            `json:"boardId"`
-	Version                         int64             `json:"version"`
-	TopicPolicy                     BoardPolicyConfig `json:"topicPolicy"`
-	ReplyPolicy                     BoardPolicyConfig `json:"replyPolicy"`
-	ModeratorProfileUUIDs           []string          `json:"moderatorProfileUuids"`
+	BoardID                        string            `json:"boardId"`
+	Version                        int64             `json:"version"`
+	TopicPolicy                    BoardPolicyConfig `json:"topicPolicy"`
+	ReplyPolicy                    BoardPolicyConfig `json:"replyPolicy"`
+	ModeratorProfileUUIDs          []string          `json:"moderatorProfileUuids"`
 	InheritedModeratorProfileUUIDs []string          `json:"inheritedModeratorProfileUuids,omitempty"`
 }
 
@@ -234,21 +234,25 @@ type InteractionBackfillItem struct {
 // --- Attachment -------------------------------------------------------------
 
 type Attachment struct {
-	ID                  string    `json:"id"`
-	SpaceUUID           string    `json:"spaceUuid"`
-	PostID              *string   `json:"postId,omitempty"`
-	CommentID           *string   `json:"commentId,omitempty"`
-	UploaderProfileUUID string    `json:"uploaderProfileUuid"`
-	ObjectKey           string    `json:"objectKey"`
-	FileName            string    `json:"fileName"`
-	ContentType         string    `json:"contentType"`
-	SizeBytes           int64     `json:"sizeBytes"`
-	Kind                string    `json:"kind"`
-	Width               *int      `json:"width,omitempty"`
-	Height              *int      `json:"height,omitempty"`
-	Status              string    `json:"status"`
-	URL                 string    `json:"url,omitempty"`
-	CreatedAt           time.Time `json:"createdAt"`
+	ID                   string     `json:"id"`
+	SpaceUUID            string     `json:"spaceUuid"`
+	PostID               *string    `json:"postId,omitempty"`
+	CommentID            *string    `json:"commentId,omitempty"`
+	UploaderProfileUUID  string     `json:"uploaderProfileUuid"`
+	ObjectKey            string     `json:"objectKey"`
+	FileName             string     `json:"fileName"`
+	ContentType          string     `json:"contentType"`
+	SizeBytes            int64      `json:"sizeBytes"`
+	Kind                 string     `json:"kind"`
+	Width                *int       `json:"width,omitempty"`
+	Height               *int       `json:"height,omitempty"`
+	Status               string     `json:"status"`
+	FinalizedAt          *time.Time `json:"finalizedAt,omitempty"`
+	ChecksumSHA256       *string    `json:"checksumSha256,omitempty"`
+	Purpose              *string    `json:"purpose,omitempty"`
+	UploadIdempotencyKey *string    `json:"-"`
+	URL                  string     `json:"url,omitempty"`
+	CreatedAt            time.Time  `json:"createdAt"`
 }
 
 // --- Subscription -----------------------------------------------------------

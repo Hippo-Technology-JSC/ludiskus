@@ -128,13 +128,19 @@ func (s *Service) validateForumAttachments(ctx context.Context, space, profile s
 		if a.SpaceUUID != space || a.UploaderProfileUUID != profile || a.Status != "pending" || a.PostID != nil || a.CommentID != nil {
 			return domain.ErrForbidden
 		}
-		size, typ, err := s.store.Stat(ctx, a.ObjectKey)
+		size, typ, detected, checksum, err := s.store.Inspect(ctx, a.ObjectKey, s.cfg.MaxFileBytes)
 		if err != nil {
 			return fmt.Errorf("%w: chưa tải xong tệp", domain.ErrValidation)
 		}
 		actual, _, _ := mime.ParseMediaType(typ)
-		if size != a.SizeBytes || size > s.cfg.MaxFileBytes || actual != a.ContentType || !s.cfg.MIMEAllowed(actual) {
+		detected, _, _ = mime.ParseMediaType(detected)
+		if size != a.SizeBytes || size > s.cfg.MaxFileBytes || actual != a.ContentType || detected != a.ContentType || !s.cfg.MIMEAllowed(actual) {
 			return fmt.Errorf("%w: tệp không khớp loại hoặc kích thước đã khai báo", domain.ErrValidation)
+		}
+		if a.FinalizedAt == nil {
+			if _, err := s.repo.FinalizeAttachment(ctx, a.ID, checksum); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

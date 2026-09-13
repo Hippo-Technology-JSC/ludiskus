@@ -455,23 +455,45 @@ func (r *Repo) AddMentions(ctx context.Context, postID string, profileUUIDs []st
 // --- attachments ------------------------------------------------------------
 
 const attCols = `id, COALESCE(space_uuid::text,''), post_id, comment_id, uploader_profile_uuid, object_key, file_name,
-	content_type, size_bytes, kind, width, height, status, created_at`
+	content_type, size_bytes, kind, width, height, status, finalized_at, checksum_sha256, purpose,
+	upload_idempotency_key, created_at`
 
 func scanAttachment(row pgx.Row, a *domain.Attachment) error {
 	return row.Scan(&a.ID, &a.SpaceUUID, &a.PostID, &a.CommentID, &a.UploaderProfileUUID, &a.ObjectKey,
-		&a.FileName, &a.ContentType, &a.SizeBytes, &a.Kind, &a.Width, &a.Height, &a.Status, &a.CreatedAt)
+		&a.FileName, &a.ContentType, &a.SizeBytes, &a.Kind, &a.Width, &a.Height, &a.Status,
+		&a.FinalizedAt, &a.ChecksumSHA256, &a.Purpose, &a.UploadIdempotencyKey, &a.CreatedAt)
 }
 
 func (r *Repo) CreateAttachment(ctx context.Context, a domain.Attachment) (*domain.Attachment, error) {
 	var out domain.Attachment
 	err := scanAttachment(r.pool.QueryRow(ctx, `
 		INSERT INTO attachments (space_uuid, uploader_profile_uuid, object_key, file_name,
-			content_type, size_bytes, kind, status)
-		VALUES (NULLIF($1,'')::uuid,$2,$3,$4,$5,$6,$7::attach_kind,'pending')
+			content_type, size_bytes, kind, status, purpose, upload_idempotency_key)
+		VALUES (NULLIF($1,'')::uuid,$2,$3,$4,$5,$6,$7::attach_kind,'pending',$8,$9)
 		RETURNING `+attCols,
 		a.SpaceUUID, a.UploaderProfileUUID, a.ObjectKey, a.FileName, a.ContentType,
-		a.SizeBytes, a.Kind), &out)
+		a.SizeBytes, a.Kind, a.Purpose, a.UploadIdempotencyKey), &out)
 	return &out, err
+}
+
+func (r *Repo) GetAttachmentByUploadIdempotencyKey(ctx context.Context, key string) (*domain.Attachment, error) {
+	var a domain.Attachment
+	err := scanAttachment(r.pool.QueryRow(ctx, `SELECT `+attCols+` FROM attachments WHERE upload_idempotency_key=$1`, key), &a)
+	if isNotFound(err) {
+		return nil, domain.ErrNotFound
+	}
+	return &a, err
+}
+
+func (r *Repo) FinalizeAttachment(ctx context.Context, id, checksum string) (*domain.Attachment, error) {
+	var a domain.Attachment
+	err := scanAttachment(r.pool.QueryRow(ctx, `UPDATE attachments
+		SET finalized_at=COALESCE(finalized_at,now()), checksum_sha256=COALESCE(checksum_sha256,$2)
+		WHERE id=$1 AND status='pending' RETURNING `+attCols, id, checksum), &a)
+	if isNotFound(err) {
+		return nil, domain.ErrNotFound
+	}
+	return &a, err
 }
 
 func (r *Repo) GetAttachment(ctx context.Context, id string) (*domain.Attachment, error) {
@@ -494,7 +516,7 @@ func (r *Repo) AttachToPost(ctx context.Context, ids []string, postID, spaceUUID
 	}
 	defer tx.Rollback(ctx)
 	tag, err := tx.Exec(ctx, `UPDATE attachments SET post_id = $2, status = 'attached'
-		WHERE id = ANY($1::uuid[]) AND space_uuid = $3 AND status = 'pending'`, ids, postID, spaceUUID)
+		WHERE id = ANY($1::uuid[]) AND space_uuid = $3 AND status = 'pending' AND finalized_at IS NOT NULL`, ids, postID, spaceUUID)
 	if err != nil {
 		return err
 	}

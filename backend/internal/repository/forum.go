@@ -10,7 +10,7 @@ func attachForumFiles(ctx context.Context, tx pgx.Tx, ids []string, post, space,
 	if len(ids) == 0 {
 		return nil
 	}
-	tag, err := tx.Exec(ctx, `UPDATE attachments SET post_id=$2,status='attached' WHERE id=ANY($1::uuid[]) AND space_uuid=$3 AND uploader_profile_uuid=$4 AND status='pending' AND post_id IS NULL AND comment_id IS NULL`, ids, post, space, author)
+	tag, err := tx.Exec(ctx, `UPDATE attachments SET post_id=$2,status='attached' WHERE id=ANY($1::uuid[]) AND space_uuid=$3 AND uploader_profile_uuid=$4 AND status='pending' AND finalized_at IS NOT NULL AND post_id IS NULL AND comment_id IS NULL`, ids, post, space, author)
 	if err != nil {
 		return err
 	}

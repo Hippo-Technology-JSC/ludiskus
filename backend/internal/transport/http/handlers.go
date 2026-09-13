@@ -284,7 +284,8 @@ func (s *Server) createReply(w http.ResponseWriter, r *http.Request) {
 }
 
 type bodyMDBody struct {
-	BodyMD string `json:"bodyMd"`
+	BodyMD        string   `json:"bodyMd"`
+	AttachmentIDs []string `json:"attachmentIds"`
 }
 
 func (s *Server) updatePost(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +293,7 @@ func (s *Server) updatePost(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b) {
 		return
 	}
-	p, err := s.svc.UpdatePost(r.Context(), chi.URLParam(r, "id"), s.me(r), b.BodyMD)
+	p, err := s.svc.UpdatePost(r.Context(), chi.URLParam(r, "id"), s.me(r), b.BodyMD, b.AttachmentIDs)
 	if err != nil {
 		writeError(w, s.log, err)
 		return
@@ -389,6 +390,58 @@ func (s *Server) attachmentURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"url": url})
+}
+
+func (s *Server) attachmentContent(w http.ResponseWriter, r *http.Request) {
+	url, err := s.svc.AttachmentContentURL(r.Context(), s.me(r), chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+func (s *Server) presignEditorAsset(w http.ResponseWriter, r *http.Request) {
+	var in service.PresignInput
+	if !decode(w, r, &in) {
+		return
+	}
+	result, err := s.svc.PresignEditorAsset(r.Context(), s.me(r), r.Header.Get("Idempotency-Key"), in)
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) completeEditorAsset(w http.ResponseWriter, r *http.Request) {
+	result, err := s.svc.CompleteEditorAsset(r.Context(), s.me(r), chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) importEditorAssets(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		SpaceUUID      string `json:"spaceUuid"`
+		Purpose        string `json:"purpose"`
+		SelectionToken string `json:"selectionToken"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	result, err := s.svc.ImportEditorAssets(r.Context(), s.me(r), in.SpaceUUID, in.SelectionToken, in.Purpose, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
 func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request) {

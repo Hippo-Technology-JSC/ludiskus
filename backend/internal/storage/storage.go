@@ -5,10 +5,12 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -25,6 +27,11 @@ type Store struct {
 	internal *minio.Client
 	public   *minio.Client
 	cfg      *config.Config
+}
+
+type ImportResult struct {
+	SizeBytes      int64
+	ChecksumSHA256 string
 }
 
 func newClient(endpoint, accessKey, secretKey string) (*minio.Client, error) {
@@ -132,48 +139,153 @@ func (s *Store) Stat(ctx context.Context, objectKey string) (size int64, content
 	return info.Size, info.ContentType, nil
 }
 
+// Inspect reads a bounded object once to verify the bytes uploaded by the
+// browser before an editor asset becomes readable or attachable.
+func (s *Store) Inspect(ctx context.Context, objectKey string, maxBytes int64) (size int64, storedType, detectedType, checksum string, err error) {
+	info, err := s.internal.StatObject(ctx, s.cfg.S3Bucket, objectKey, minio.StatObjectOptions{})
+	if err != nil {
+		return 0, "", "", "", err
+	}
+	if info.Size <= 0 || info.Size > maxBytes {
+		return info.Size, info.ContentType, "", "", fmt.Errorf("kích thước object không hợp lệ")
+	}
+	object, err := s.internal.GetObject(ctx, s.cfg.S3Bucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return 0, "", "", "", err
+	}
+	defer object.Close()
+	buffer := make([]byte, 512)
+	n, readErr := io.ReadFull(object, buffer)
+	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+		return 0, "", "", "", readErr
+	}
+	detectedType = http.DetectContentType(buffer[:n])
+	hash := sha256.New()
+	if _, err = hash.Write(buffer[:n]); err != nil {
+		return 0, "", "", "", err
+	}
+	remaining := info.Size - int64(n)
+	copied, err := io.Copy(hash, io.LimitReader(object, remaining+1))
+	if err != nil {
+		return 0, "", "", "", err
+	}
+	if copied != remaining {
+		return 0, "", "", "", fmt.Errorf("kích thước object thay đổi khi kiểm tra")
+	}
+	return info.Size, info.ContentType, detectedType, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 func (s *Store) Remove(ctx context.Context, objectKey string) error {
 	return s.internal.RemoveObject(ctx, s.cfg.S3Bucket, objectKey, minio.RemoveObjectOptions{})
 }
 
-func (s *Store) ImportURL(ctx context.Context, sourceURL, objectKey, contentType string, expectedSize int64, expectedChecksum *string) error {
+func readExactBounded(reader io.Reader, expectedSize int64) ([]byte, error) {
+	if expectedSize <= 0 {
+		return nil, fmt.Errorf("kích thước tệp nguồn không hợp lệ")
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, expectedSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) != expectedSize {
+		return nil, fmt.Errorf("kích thước tệp nguồn không khớp")
+	}
+	return data, nil
+}
+
+// optimizeImageLosslessly currently handles PNG. It decodes and re-encodes the
+// exact pixels with the standard library's best compression and only selects
+// the result when it is smaller. Other image formats pass through unchanged.
+func optimizeImageLosslessly(data []byte, contentType string, maxPixels uint64) ([]byte, error) {
+	if strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) != "image/png" {
+		return data, nil
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("PNG nguồn không hợp lệ: %w", err)
+	}
+	pixels := uint64(config.Width) * uint64(config.Height)
+	if config.Width <= 0 || config.Height <= 0 || pixels > maxPixels {
+		return nil, fmt.Errorf("PNG nguồn vượt giới hạn số pixel")
+	}
+	image, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("không thể giải mã PNG nguồn: %w", err)
+	}
+	var output bytes.Buffer
+	encoder := png.Encoder{CompressionLevel: png.BestCompression}
+	if err := encoder.Encode(&output, image); err != nil {
+		return nil, fmt.Errorf("không thể nén PNG nguồn: %w", err)
+	}
+	if output.Len() >= len(data) {
+		return data, nil
+	}
+	return output.Bytes(), nil
+}
+
+func (s *Store) putPrepared(ctx context.Context, objectKey, contentType string, data []byte) (*ImportResult, error) {
+	info, err := s.internal.PutObject(ctx, s.cfg.S3Bucket, objectKey, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{ContentType: contentType})
+	if err != nil {
+		return nil, err
+	}
+	if info.Size != int64(len(data)) {
+		_ = s.Remove(ctx, objectKey)
+		return nil, fmt.Errorf("kích thước object đích không khớp")
+	}
+	sum := sha256.Sum256(data)
+	return &ImportResult{SizeBytes: info.Size, ChecksumSHA256: hex.EncodeToString(sum[:])}, nil
+}
+
+// ImportURLPrepared validates the source bytes, applies supported lossless
+// image optimization, then performs the first write of the destination object.
+func (s *Store) ImportURLPrepared(ctx context.Context, sourceURL, objectKey, contentType string, expectedSize int64, expectedChecksum *string) (*ImportResult, error) {
 	u, err := url.Parse(sourceURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		return fmt.Errorf("URL nguồn không hợp lệ")
+		return nil, fmt.Errorf("URL nguồn không hợp lệ")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	client := &http.Client{Timeout: 2 * time.Minute}
 	res, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("nguồn trả status %d", res.StatusCode)
+		return nil, fmt.Errorf("nguồn trả status %d", res.StatusCode)
 	}
-	hash := sha256.New()
-	reader := io.TeeReader(io.LimitReader(res.Body, expectedSize+1), hash)
-	info, err := s.internal.PutObject(ctx, s.cfg.S3Bucket, objectKey, reader, expectedSize, minio.PutObjectOptions{ContentType: contentType})
+	data, err := readExactBounded(res.Body, expectedSize)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if info.Size != expectedSize {
-		_ = s.Remove(ctx, objectKey)
-		return fmt.Errorf("kích thước tệp nguồn không khớp")
+	sourceSum := sha256.Sum256(data)
+	if expectedChecksum != nil && *expectedChecksum != "" && !strings.EqualFold(*expectedChecksum, hex.EncodeToString(sourceSum[:])) {
+		return nil, fmt.Errorf("checksum tệp nguồn không khớp")
 	}
-	if expectedChecksum != nil && *expectedChecksum != "" && !strings.EqualFold(*expectedChecksum, hex.EncodeToString(hash.Sum(nil))) {
-		_ = s.Remove(ctx, objectKey)
-		return fmt.Errorf("checksum tệp nguồn không khớp")
+	data, err = optimizeImageLosslessly(data, contentType, 40_000_000)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return s.putPrepared(ctx, objectKey, contentType, data)
 }
 
-func (s *Store) Copy(ctx context.Context, sourceKey, targetKey string) error {
-	_, err := s.internal.CopyObject(ctx,
-		minio.CopyDestOptions{Bucket: s.cfg.S3Bucket, Object: targetKey},
-		minio.CopySrcOptions{Bucket: s.cfg.S3Bucket, Object: sourceKey})
-	return err
+// CopyPrepared reads an existing object through the same bounded preparation
+// path so a Personal Files import is optimized before its destination is saved.
+func (s *Store) CopyPrepared(ctx context.Context, sourceKey, targetKey, contentType string, expectedSize int64) (*ImportResult, error) {
+	object, err := s.internal.GetObject(ctx, s.cfg.S3Bucket, sourceKey, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer object.Close()
+	data, err := readExactBounded(object, expectedSize)
+	if err != nil {
+		return nil, err
+	}
+	data, err = optimizeImageLosslessly(data, contentType, 40_000_000)
+	if err != nil {
+		return nil, err
+	}
+	return s.putPrepared(ctx, targetKey, contentType, data)
 }
