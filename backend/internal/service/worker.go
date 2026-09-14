@@ -4,10 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"reflect"
 
 	"ludiskus/db"
 	"ludiskus/internal/notify"
 )
+
+type registeredTemplate struct {
+	ID            string
+	Name          string
+	LocaleDefault string
+	Bodies        json.RawMessage
+}
 
 // ProcessOutbox đẩy toàn bộ việc trong outbox sang lunoti tới khi rỗng (docs/08).
 func (s *Service) ProcessOutbox(ctx context.Context, log *slog.Logger) {
@@ -149,14 +157,52 @@ func (s *Service) RegisterEventTypes(ctx context.Context, log *slog.Logger) {
 			log.Warn("đăng ký event-type", "code", et.Code, "err", err)
 		}
 	}
+	var existing struct {
+		Data []struct {
+			ID            string          `json:"id"`
+			Code          string          `json:"code"`
+			Name          string          `json:"name"`
+			LocaleDefault string          `json:"localeDefault"`
+			Bodies        json.RawMessage `json:"bodies"`
+		} `json:"data"`
+	}
+	templates := map[string]registeredTemplate{}
+	if err := s.lunoti.Get(ctx, "/api/v1/templates", &existing); err != nil {
+		log.Warn("không đọc được template hiện có của lunoti", "err", err)
+	} else {
+		for _, item := range existing.Data {
+			templates[item.Code] = registeredTemplate{item.ID, item.Name, item.LocaleDefault, item.Bodies}
+		}
+	}
 	for _, t := range sf.Templates {
-		if err := s.lunoti.Post(ctx, "/api/v1/templates", map[string]any{
+		body := map[string]any{
 			"code": t.Code, "name": t.Name, "localeDefault": t.LocaleDefault, "bodies": t.Bodies,
-		}); err != nil {
+		}
+		var err error
+		if current, ok := templates[t.Code]; ok {
+			if sameTemplate(current.Name, current.LocaleDefault, current.Bodies, t.Name, t.LocaleDefault, t.Bodies) {
+				continue
+			}
+			err = s.lunoti.Patch(ctx, "/api/v1/templates/"+current.ID, body)
+		} else {
+			err = s.lunoti.Post(ctx, "/api/v1/templates", body)
+		}
+		if err != nil {
 			log.Warn("đăng ký template", "code", t.Code, "err", err)
 		}
 	}
 	log.Info("đã đăng ký event-type/template lên lunoti")
+}
+
+func sameTemplate(currentName, currentLocale string, currentBodies json.RawMessage, wantedName, wantedLocale string, wantedBodies json.RawMessage) bool {
+	if currentName != wantedName || currentLocale != wantedLocale {
+		return false
+	}
+	var current, wanted any
+	if json.Unmarshal(currentBodies, &current) != nil || json.Unmarshal(wantedBodies, &wanted) != nil {
+		return false
+	}
+	return reflect.DeepEqual(current, wanted)
 }
 
 // EnsureStorage tạo bucket khi khởi động (nếu cấu hình MinIO).

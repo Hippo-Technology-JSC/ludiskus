@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -83,6 +84,20 @@ func (c *Client) Send(ctx context.Context, ev Event) error {
 // Post gửi một POST JSON có xác thực tới lunoti (đăng ký event-type/template).
 // Bỏ qua lỗi 409 (đã tồn tại) ở phía gọi nếu cần.
 func (c *Client) Post(ctx context.Context, path string, body any) error {
+	return c.request(ctx, http.MethodPost, path, body, nil, true)
+}
+
+// Get đọc một tài nguyên JSON từ lunoti.
+func (c *Client) Get(ctx context.Context, path string, out any) error {
+	return c.request(ctx, http.MethodGet, path, nil, out, false)
+}
+
+// Patch cập nhật một tài nguyên JSON đã tồn tại trên lunoti.
+func (c *Client) Patch(ctx context.Context, path string, body any) error {
+	return c.request(ctx, http.MethodPatch, path, body, nil, false)
+}
+
+func (c *Client) request(ctx context.Context, method, path string, body, out any, allowConflict bool) error {
 	if !c.Enabled() {
 		return fmt.Errorf("lunoti chưa cấu hình")
 	}
@@ -90,15 +105,21 @@ func (c *Client) Post(ctx context.Context, path string, body any) error {
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(body)
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.cfg.LunotiAPIURL+path, reader)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.LunotiAPIURL+path, bytes.NewReader(raw))
-	if err != nil {
-		return err
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	res, err := c.client.Do(req)
@@ -107,12 +128,17 @@ func (c *Client) Post(ctx context.Context, path string, body any) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
+		if out != nil {
+			if err := json.NewDecoder(res.Body).Decode(out); err != nil {
+				return fmt.Errorf("đọc phản hồi lunoti %s %s: %w", method, path, err)
+			}
+		}
 		return nil
 	}
-	if res.StatusCode == http.StatusConflict {
+	if allowConflict && res.StatusCode == http.StatusConflict {
 		return nil // đã tồn tại
 	}
-	return fmt.Errorf("lunoti POST %s status %d", path, res.StatusCode)
+	return fmt.Errorf("lunoti %s %s status %d", method, path, res.StatusCode)
 }
 
 func (c *Client) accessToken(ctx context.Context) (string, error) {
