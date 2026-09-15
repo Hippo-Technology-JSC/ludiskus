@@ -96,6 +96,22 @@ không thấy và Space riêng tư → từ chối (an toàn mặc định).
   `post_mentions` **lẫn** việc đổi `@code` thành họ tên khi render `body_html`.
   Nhờ đi chung một cửa, người mà bài viết hiện tên đúng là người nhận thông báo —
   không thể có chuyện bài hiện tên ai đó mà người ấy không được báo tin.
+- **Tìm thành viên để gợi ý @mention lọc NGAY TRONG SQL**
+  (`Repo.SearchSpaceMemberProfiles`: `space_member_cache ⨝ profile_cache`, lọc theo
+  `position()` rồi `LIMIT`). Đường cũ nạp từng Profile một rồi mới lọc trong Go — đo trên
+  Space 5.004 thành viên: **1,356 s → 24 ms**. Dùng `position()` chứ không `LIKE '%…%'` để
+  khỏi phải escape `%`/`_`; thứ tự là "khớp từ đầu chuỗi trước, rồi theo tên, rồi uuid" vì
+  danh sách bị cắt ở 10/20 nên thứ tự quyết định ai được thấy.
+  - Truy vấn join bỏ qua thành viên **chưa có** hàng `profile_cache` (mới vào Space giữa hai
+    lần full-sync của worker), trong khi đường cũ nạp lười từ HipCore nên vẫn thấy. Phần
+    chênh ấy được bù bằng `SpaceMembersMissingProfile` + nạp lười **có chặn trên**.
+  - Nhánh `participants` của LuComment vẫn nạp từng Profile: số ứng viên ở đó bị chặn bởi số
+    người đã bình luận trên đúng một tài nguyên (hàng chục), không phải hàng nghìn.
+- **`SyncMembers` duyệt HẾT trang.** Trước đây chỉ lấy `per_page=1000` một lần rồi
+  `ReplaceMembers`, nên Space quá 1.000 thành viên thì người thứ 1.001 trở đi biến mất khỏi
+  `space_member_cache` — và vì `Role()`/`IsMember()` tra chính bảng đó, họ **mất luôn quyền
+  đọc/đăng bài**, không chỉ vắng mặt trong gợi ý mention. `ReplaceMembers` chỉ được gọi một
+  lần sau khi gom đủ mọi trang; gọi theo từng trang thì trang sau xoá sạch trang trước.
 - Bài viết trích handle bằng `Renderer.MentionsIn` (đi theo cây cú pháp goldmark)
   chứ không phải regex trên văn bản thô, nên dán một đoạn log/cấu hình có
   "@ai-đó" trong khối code **không** còn báo tin cho người ta. `markdown.Mentions`

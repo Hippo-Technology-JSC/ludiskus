@@ -166,3 +166,84 @@ func TestMentionsInIgnoresCodeBlocks(t *testing.T) {
 		t.Fatalf("Mentions() dạng regex đã đổi hành vi ngoài dự tính: %v", got)
 	}
 }
+
+// TestMentionWorksInEveryMode: LuComment mặc định chạy chế độ "basic" và cho
+// phép hạ xuống "plain", nên nếu chỉ "rich" biết đổi tên thì bình luận vẫn hiện
+// @code trong khi bài viết hiện họ tên.
+func TestMentionWorksInEveryMode(t *testing.T) {
+	r := New()
+	resolve := fakeNames(map[string]string{"bob": "Bob Trần"})
+	for _, mode := range []string{"plain", "basic", "rich"} {
+		out := r.RenderModeWithMentions(mode, "Chào @bob và @nguoila", resolve)
+		if !strings.Contains(out, `data-mention="bob">Bob Trần</span>`) {
+			t.Errorf("mode=%s không hiện họ tên: %s", mode, out)
+		}
+		if !strings.Contains(out, `data-mention="nguoila">@nguoila</span>`) {
+			t.Errorf("mode=%s không giữ @code cho người chưa phân giải: %s", mode, out)
+		}
+		if strings.Contains(out, "@Bob Trần") {
+			t.Errorf("mode=%s còn dấu @ trước họ tên: %s", mode, out)
+		}
+		// Chip phải sống sót NGUYÊN VẸN qua bộ lọc bluemonday của CHÍNH chế độ
+		// đó. Kiểm cả class: mất data-mention thì cổng parity bên dưới bắt được,
+		// nhưng mất class thì chip vẫn còn mà hết kiểu hiển thị — hỏng lặng lẽ,
+		// không test nào khác thấy.
+		if strings.Count(out, "<span") != 2 {
+			t.Errorf("mode=%s chip bị bộ lọc cắt mất: %s", mode, out)
+		}
+		if strings.Count(out, `<span class="mention" data-mention=`) != 2 {
+			t.Errorf("mode=%s chip mất thuộc tính sau khi sanitize: %s", mode, out)
+		}
+	}
+}
+
+func TestMentionModesIgnoreEmailAndCodeSpan(t *testing.T) {
+	r := New()
+	resolve := fakeNames(map[string]string{"bob": "Bob Trần", "example.com": "KHÔNG ĐƯỢC HIỆN"})
+	for _, mode := range []string{"plain", "basic", "rich"} {
+		out := r.RenderModeWithMentions(mode, "mail ai@example.com và xem https://t.test/@bob", resolve)
+		if strings.Contains(out, "KHÔNG ĐƯỢC HIỆN") || strings.Contains(out, "Bob Trần") {
+			t.Errorf("mode=%s biến email/URL thành mention: %s", mode, out)
+		}
+	}
+	// Code span chỉ tồn tại ở chế độ markdown; plain coi backtick là chữ thường.
+	for _, mode := range []string{"basic", "rich"} {
+		out := r.RenderModeWithMentions(mode, "`@bob` là code", resolve)
+		if !strings.Contains(out, "<code>@bob</code>") || strings.Contains(out, "Bob Trần") {
+			t.Errorf("mode=%s thay mention trong code span: %s", mode, out)
+		}
+	}
+}
+
+// TestMentionsInModeMatchesChipsPerMode giữ lời hứa "hiện tên ⟺ được báo tin"
+// riêng cho TỪNG chế độ: cây cú pháp của basic và rich không giống nhau, nên
+// trích bằng parser của chế độ khác là có ngày lệch.
+func TestMentionsInModeMatchesChipsPerMode(t *testing.T) {
+	chipRe := regexp.MustCompile(`data-mention="([^"]+)"`)
+	r := New()
+	for _, mode := range []string{"plain", "basic", "rich"} {
+		for _, src := range []string{
+			"@bob đầu dòng",
+			"giữa câu @bob nhé",
+			"(@bob) trong ngoặc",
+			"mail ai@example.com và @bob",
+			"```\n@bob\n```",
+			"`@bob` code",
+			"không có ai",
+		} {
+			out := r.RenderMode(mode, src)
+			seen := map[string]bool{}
+			chips := []string{}
+			for _, m := range chipRe.FindAllStringSubmatch(out, -1) {
+				if !seen[m[1]] {
+					seen[m[1]] = true
+					chips = append(chips, m[1])
+				}
+			}
+			want := r.MentionsInMode(mode, src)
+			if strings.Join(chips, ",") != strings.Join(want, ",") {
+				t.Errorf("mode=%s src=%q chip=%v nhưng MentionsInMode=%v", mode, src, chips, want)
+			}
+		}
+	}
+}

@@ -107,7 +107,7 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 		mode = *in.MarkdownMode
 	}
 	comment := domain.Comment{TargetID: t.ID, ParentID: in.ParentID, AuthorKind: "profile", AuthorProfileUUID: &profileUUID,
-		BodyMD: body, BodyHTML: s.md.RenderMode(mode, body), BodyHash: commentBodyHash(body), MarkdownMode: mode, Status: domain.CommentPublished}
+		BodyMD: body, BodyHTML: s.renderCommentBody(ctx, t, p, mode, body), BodyHash: commentBodyHash(body), MarkdownMode: mode, Status: domain.CommentPublished}
 	if idem != "" {
 		comment.IdempotencyKey = &idem
 	}
@@ -158,7 +158,7 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 	if err = s.checkCommentRate(ctx, profileUUID, t.ID, comment.BodyHash, p); err != nil {
 		return nil, false, err
 	}
-	mentions := s.resolveCommentMentions(ctx, t, p, body)
+	mentions := s.resolveCommentMentions(ctx, t, p, mode, body)
 	notifications := []repository.CommentNotifyInsert(nil)
 	if comment.Status == domain.CommentPublished {
 		notifications, err = s.commentNotifyRows(ctx, t, &comment, p, mentions)
@@ -261,38 +261,91 @@ func narrowerMarkdown(chosen, maxMode string) bool {
 	return a <= level[maxMode]
 }
 
-func (s *Service) resolveCommentMentions(ctx context.Context, t *domain.CommentTarget, p domain.CommentPolicy, body string) []string {
+func (s *Service) resolveCommentMentions(ctx context.Context, t *domain.CommentTarget, p domain.CommentPolicy, mode, body string) []string {
 	if !p.Mentions.Enabled || p.Mentions.Scope == "none" {
 		return nil
 	}
-	handles := markdown.Mentions(body)
+	// MentionsInMode chứ không phải Mentions: trích theo cây cú pháp của ĐÚNG
+	// chế độ markdown sẽ dùng để render, nên dán một đoạn log có "@ai-đó" trong
+	// khối code không báo tin cho người ta.
+	handles := s.md.MentionsInMode(mode, body)
 	if len(handles) > p.Mentions.MaxPerComment {
 		handles = handles[:p.Mentions.MaxPerComment]
 	}
 	out := []string{}
 	seen := map[string]bool{}
 	for _, h := range handles {
-		profile, err := s.ident.ProfileByCode(ctx, h)
-		if err != nil && len(h) >= 32 {
-			profile, err = s.ident.Profile(ctx, h)
-		}
-		if err != nil || profile == nil || seen[profile.ProfileUUID] {
+		profile := s.commentMentionTarget(ctx, t, p, h)
+		if profile == nil || seen[profile.ProfileUUID] {
 			continue
 		}
-		allowed := false
-		scope := p.Mentions.Scope
-		if scope == "space" && t.SpaceUUID != nil {
-			allowed = s.ident.IsMember(ctx, *t.SpaceUUID, profile.ProfileUUID)
-		} else {
-			_, e := s.repo.GetCommentParticipant(ctx, t.ID, profile.ProfileUUID)
-			allowed = e == nil || t.OwnerID != nil && *t.OwnerID == profile.ProfileUUID
-		}
-		if allowed {
-			seen[profile.ProfileUUID] = true
-			out = append(out, profile.ProfileUUID)
-		}
+		seen[profile.ProfileUUID] = true
+		out = append(out, profile.ProfileUUID)
 	}
 	return out
+}
+
+// commentMentionTarget quyết định MỘT @handle có nhắc được tới ai không, theo
+// đúng phạm vi của target. LuComment gắn lên đủ loại tài nguyên của nhiều
+// service, nên không bao giờ được tra toàn bộ Profile của hệ thống:
+//
+//   - scope "space" + target có Space → chỉ thành viên Space đó;
+//   - còn lại → chỉ người ĐÃ tham gia chính luồng bình luận này, cộng chủ sở hữu
+//     tài nguyên. Đây cũng là nhánh dự phòng khi scope lạ hoặc target không có
+//     Space, tức mặc định luôn là phạm vi HẸP hơn.
+//
+// Cả nhãn hiển thị lẫn bảng comment_mentions đều đi qua đây, nên người mà bình
+// luận hiện tên đúng là người nhận được thông báo.
+func (s *Service) commentMentionTarget(ctx context.Context, t *domain.CommentTarget, p domain.CommentPolicy, handle string) *domain.CachedProfile {
+	profile, err := s.ident.ProfileByCode(ctx, handle)
+	if err != nil && len(handle) >= 32 {
+		profile, err = s.ident.Profile(ctx, handle)
+	}
+	if err != nil || profile == nil {
+		return nil
+	}
+	if p.Mentions.Scope == "space" && t.SpaceUUID != nil {
+		if s.ident.IsMember(ctx, *t.SpaceUUID, profile.ProfileUUID) {
+			return profile
+		}
+		return nil
+	}
+	if _, e := s.repo.GetCommentParticipant(ctx, t.ID, profile.ProfileUUID); e == nil {
+		return profile
+	}
+	if t.OwnerID != nil && *t.OwnerID == profile.ProfileUUID {
+		return profile
+	}
+	return nil
+}
+
+// commentMentionLabels dựng bộ phân giải nhãn cho MỘT lần render bình luận, đi
+// qua cùng cửa commentMentionTarget. Trần MaxPerComment được áp y hệt lúc trích:
+// mention thứ 11 không được báo tin thì cũng không được hiện tên, để thứ người
+// đọc thấy không hứa nhiều hơn thứ hệ thống làm.
+func (s *Service) commentMentionLabels(ctx context.Context, t *domain.CommentTarget, p domain.CommentPolicy) markdown.MentionResolver {
+	if !p.Mentions.Enabled || p.Mentions.Scope == "none" {
+		return nil
+	}
+	seen := map[string]string{}
+	return func(handle string) (string, bool) {
+		key := strings.ToLower(handle)
+		label, done := seen[key]
+		if !done {
+			if len(seen) < p.Mentions.MaxPerComment {
+				if profile := s.commentMentionTarget(ctx, t, p, handle); profile != nil {
+					label = strings.TrimSpace(profile.Name)
+				}
+			}
+			seen[key] = label
+		}
+		return label, label != ""
+	}
+}
+
+// renderCommentBody dựng HTML bình luận và đổi "@code" thành họ tên.
+func (s *Service) renderCommentBody(ctx context.Context, t *domain.CommentTarget, p domain.CommentPolicy, mode, body string) string {
+	return s.md.RenderModeWithMentions(mode, body, s.commentMentionLabels(ctx, t, p))
 }
 
 func (s *Service) ListComments(ctx context.Context, ref domain.ResourceRef, profileUUID, sort, cursor string, limit, preview int) (*CommentPage, error) {
@@ -521,7 +574,7 @@ func (s *Service) UpdateComment(ctx context.Context, id, profileUUID string, in 
 	if in.MarkdownMode != nil && narrowerMarkdown(*in.MarkdownMode, p.Markdown) {
 		mode = *in.MarkdownMode
 	}
-	out, err := s.repo.UpdateCommentBody(ctx, c, body, s.md.RenderMode(mode, body), commentBodyHash(body), mode, profileUUID)
+	out, err := s.repo.UpdateCommentBody(ctx, c, body, s.renderCommentBody(ctx, t, p, mode, body), commentBodyHash(body), mode, profileUUID)
 	if err == nil {
 		s.enrichComments(ctx, []*domain.Comment{out}, profileUUID, false)
 		s.clearCommentCaches(ctx, t.Ref())
@@ -703,40 +756,51 @@ func (s *Service) MentionSuggestions(ctx context.Context, ref domain.ResourceRef
 	if err != nil {
 		return nil, err
 	}
-	if !p.Mentions.Enabled {
+	// scope "none" thì KHÔNG ai nhắc được (resolveCommentMentions trả nil ngay),
+	// nên gợi ý cũng phải rỗng — bằng không giao diện mời người ta chọn một cái
+	// tên mà hệ thống sẽ lặng lẽ vứt đi.
+	if !p.Mentions.Enabled || p.Mentions.Scope == "none" {
 		return []domain.CachedProfile{}, nil
+	}
+	// Danh sách ứng viên phải dựng theo ĐÚNG phạm vi mà commentMentionTarget cho
+	// phép, không bao giờ là toàn bộ Profile của hệ thống: LuComment gắn lên tài
+	// nguyên của nhiều service nên "mọi người" gần như luôn là sai context.
+	if p.Mentions.Scope == "space" && t.SpaceUUID != nil {
+		// Space vài nghìn thành viên: lọc theo q và cắt ở 10 NGAY TRONG SQL,
+		// không nạp từng Profile rồi mới lọc trong Go.
+		return s.searchSpaceMembers(ctx, *t.SpaceUUID, q, 10)
+	}
+	// Nhánh participants nạp từng Profile, nhưng ở đây số ứng viên bị chặn bởi
+	// số người ĐÃ bình luận trên đúng một tài nguyên — hàng chục, không phải
+	// hàng nghìn như danh sách thành viên Space.
+	candidates := []string{}
+	// Chủ tài nguyên nhắc được kể cả khi chưa từng bình luận, nên phải có mặt
+	// trong gợi ý — nếu không sẽ có người nhắc được mà không ai tìm thấy.
+	if t.OwnerType != nil && *t.OwnerType == "profile" && t.OwnerID != nil {
+		candidates = append(candidates, *t.OwnerID)
+	}
+	participants, e := s.repo.ListCommentParticipants(ctx, t.ID)
+	if e != nil {
+		return nil, e
+	}
+	for _, m := range participants {
+		candidates = append(candidates, m.ProfileUUID)
 	}
 	out := []domain.CachedProfile{}
 	seen := map[string]bool{}
-	if t.SpaceUUID != nil && p.Mentions.Scope == "space" {
-		members, e := s.ident.Members(ctx, *t.SpaceUUID)
-		if e != nil {
-			return nil, e
+	for _, uuid := range candidates {
+		if seen[uuid] {
+			continue
 		}
-		for _, m := range members {
-			profile, e := s.ident.Profile(ctx, m.ProfileUUID)
-			if e == nil && profile != nil && matchProfile(*profile, q) && !seen[profile.ProfileUUID] {
-				seen[profile.ProfileUUID] = true
-				out = append(out, *profile)
-				if len(out) == 10 {
-					break
-				}
-			}
+		seen[uuid] = true
+		profile, e := s.ident.Profile(ctx, uuid)
+		// Không gợi ý người đã ngừng hoạt động, giống ForumMembers của diễn đàn.
+		if e != nil || profile == nil || !profile.IsActive || !matchProfile(*profile, q) {
+			continue
 		}
-	} else {
-		participants, e := s.repo.ListCommentParticipants(ctx, t.ID)
-		if e != nil {
-			return nil, e
-		}
-		for _, m := range participants {
-			profile, e := s.ident.Profile(ctx, m.ProfileUUID)
-			if e == nil && profile != nil && matchProfile(*profile, q) && !seen[profile.ProfileUUID] {
-				seen[profile.ProfileUUID] = true
-				out = append(out, *profile)
-				if len(out) == 10 {
-					break
-				}
-			}
+		out = append(out, *profile)
+		if len(out) == 10 {
+			break
 		}
 	}
 	return out, nil

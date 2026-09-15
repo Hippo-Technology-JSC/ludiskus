@@ -70,31 +70,47 @@ func (s *Service) ForumMembers(ctx context.Context, space, profile, q string) ([
 	if s.role(ctx, space, profile) == "" {
 		return nil, domain.ErrForbidden
 	}
-	members, err := s.ident.Members(ctx, space)
+	return s.searchSpaceMembers(ctx, space, q, 20)
+}
+
+// searchSpaceMembers tìm thành viên Space để gợi ý @mention. Lọc và cắt diễn ra
+// trong SQL (một lượt), không phải nạp từng Profile rồi lọc trong Go.
+func (s *Service) searchSpaceMembers(ctx context.Context, space, q string, limit int) ([]domain.CachedProfile, error) {
+	// Vẫn gọi Members trước: nó là nơi đồng bộ space_member_cache từ HipCore khi
+	// cache nguội. Bỏ bước này thì Space vừa tạo sẽ không gợi ý được ai.
+	if _, err := s.ident.Members(ctx, space); err != nil {
+		return nil, err
+	}
+	out, err := s.repo.SearchSpaceMemberProfiles(ctx, space, q, limit)
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(members))
-	for _, m := range members {
-		ids = append(ids, m.ProfileUUID)
+	if len(out) >= limit {
+		return out, nil
 	}
-	profiles := s.ident.ProfileMap(ctx, ids)
-	out := []domain.CachedProfile{}
-	q = strings.ToLower(strings.TrimSpace(q))
-	for _, id := range ids {
-		p := profiles[id]
-		if p == nil || !p.IsActive {
+	// Bù phần chênh: thành viên chưa có hàng profile_cache (mới vào Space giữa
+	// hai lần full-sync của worker) bị truy vấn join bỏ qua, trong khi đường cũ
+	// nạp lười từ HipCore nên vẫn thấy. Nạp lười đúng phần thiếu, có chặn trên.
+	missing, err := s.repo.SpaceMembersMissingProfile(ctx, space, limit-len(out))
+	if err != nil || len(missing) == 0 {
+		return out, nil
+	}
+	seen := make(map[string]bool, len(out))
+	for _, p := range out {
+		seen[p.ProfileUUID] = true
+	}
+	needle := strings.ToLower(strings.TrimSpace(q))
+	for _, uuid := range missing {
+		profile, e := s.ident.Profile(ctx, uuid)
+		if e != nil || profile == nil || !profile.IsActive || seen[profile.ProfileUUID] {
 			continue
 		}
-		code := ""
-		if p.Code != nil {
-			code = *p.Code
+		if !matchProfile(*profile, needle) {
+			continue
 		}
-		if strings.Contains(strings.ToLower(p.Name+" "+code), q) {
-			out = append(out, *p)
-			if len(out) == 20 {
-				break
-			}
+		out = append(out, *profile)
+		if len(out) == limit {
+			break
 		}
 	}
 	return out, nil

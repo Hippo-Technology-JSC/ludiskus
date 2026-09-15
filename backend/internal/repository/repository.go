@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -48,6 +49,72 @@ func jsonOrEmpty(b []byte) []byte {
 }
 
 // --- profile_cache ----------------------------------------------------------
+
+// SearchSpaceMemberProfiles trả Profile của thành viên một Space khớp q, LỌC VÀ
+// CẮT NGAY TRONG SQL. Trước đây tầng service nạp từng Profile một rồi mới lọc
+// trong Go, nên Space vài nghìn thành viên là vài nghìn lượt tra cache cho mỗi
+// lần gõ phím.
+//
+// Dùng position() chứ không LIKE '%…%': position khớp chuỗi con y hệt
+// strings.Contains của Go, và không có ký tự đại diện nào để phải escape — gõ
+// "%" hay "_" chỉ là gõ hai ký tự đó, không biến thành "khớp tất cả".
+//
+// Thứ tự: khớp từ ĐẦU chuỗi lên trước, rồi theo tên, rồi theo uuid cho ổn định.
+// Danh sách bị cắt ở limit nên thứ tự quyết định ai được thấy; để Postgres trả
+// theo thứ tự bất kỳ nghĩa là gõ cùng một chữ hai lần có thể ra hai danh sách.
+func (r *Repo) SearchSpaceMemberProfiles(ctx context.Context, spaceUUID, q string, limit int) ([]domain.CachedProfile, error) {
+	needle := strings.ToLower(strings.TrimSpace(q))
+	rows, err := r.pool.Query(ctx, `
+		SELECT p.profile_uuid, p.user_id, p.code, p.name, p.avatar, p.is_active, p.created_at, p.synced_at
+		FROM space_member_cache m
+		JOIN profile_cache p ON p.profile_uuid = m.profile_uuid
+		WHERE m.space_uuid = $1 AND p.is_active
+		  AND ($2 = '' OR position($2 in lower(p.name)) > 0
+		               OR position($2 in lower(coalesce(p.code, ''))) > 0)
+		ORDER BY (position($2 in lower(p.name)) = 1
+		       OR position($2 in lower(coalesce(p.code, ''))) = 1) DESC,
+		         p.name, p.profile_uuid
+		LIMIT $3`, spaceUUID, needle, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.CachedProfile{}
+	for rows.Next() {
+		var p domain.CachedProfile
+		if err := rows.Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// SpaceMembersMissingProfile trả uuid thành viên CHƯA có hàng trong
+// profile_cache. Truy vấn join ở trên bỏ qua những người này, còn đường cũ thì
+// nạp lười từ HipCore nên vẫn thấy họ. Gọi đây để bù đúng phần chênh ấy, có
+// chặn trên, thay vì nạp lười cả nghìn người.
+func (r *Repo) SpaceMembersMissingProfile(ctx context.Context, spaceUUID string, limit int) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT m.profile_uuid FROM space_member_cache m
+		WHERE m.space_uuid = $1
+		  AND NOT EXISTS (SELECT 1 FROM profile_cache p WHERE p.profile_uuid = m.profile_uuid)
+		ORDER BY m.profile_uuid
+		LIMIT $2`, spaceUUID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
 
 func (r *Repo) GetCachedProfile(ctx context.Context, uuid string) (*domain.CachedProfile, error) {
 	var p domain.CachedProfile

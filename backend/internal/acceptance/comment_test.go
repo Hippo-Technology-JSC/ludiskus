@@ -213,6 +213,145 @@ func TestCommentAcceptance(t *testing.T) {
 			t.Fatal("mention outbox absent")
 		}
 	})
+	t.Run("mention_shows_name_and_stays_in_context", func(t *testing.T) {
+		// LuComment gắn lên tài nguyên của nhiều service, nên người ngoài luồng
+		// phải KHÔNG nhắc được dù Profile của họ có thật trong hệ thống.
+		exec(`INSERT INTO profile_cache(profile_uuid,code,name,is_active,created_at) VALUES($1,'outsider','Người Ngoài Luồng',true,now()-interval '1 year') ON CONFLICT DO NOTHING`, outsider)
+		var isParticipant bool
+		pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM comment_participants WHERE target_id=$1 AND profile_uuid=$2)`, target.ID, outsider).Scan(&isParticipant)
+		if isParticipant {
+			t.Fatal("tiền đề hỏng: outsider đã trong luồng, không kiểm được phạm vi")
+		}
+
+		// Gợi ý phải lấy đúng context: chỉ người trong luồng, không phải mọi Profile.
+		suggestions, e := svc.MentionSuggestions(ctx, target.Ref(), member, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		names := []string{}
+		for _, v := range suggestions {
+			names = append(names, v.Name)
+			if v.ProfileUUID == outsider {
+				t.Errorf("gợi ý lọt người ngoài luồng: %v", suggestions)
+			}
+		}
+		if len(suggestions) == 0 {
+			t.Fatalf("gợi ý rỗng — phép thử phạm vi sẽ luôn xanh")
+		}
+		t.Logf("gợi ý trong phạm vi participants: %v", names)
+
+		// scope "none": không ai nhắc được, nên không được gợi ý ai.
+		none := domain.DefaultCommentPolicy()
+		none.PublicRead = true
+		none.Mentions.Scope = "none"
+		noneRaw, _ := json.Marshal(none)
+		if e = repo.UpsertCommentPolicy(ctx, "fixture", "*", noneRaw, nil); e != nil {
+			t.Fatal(e)
+		}
+		// newService() chứ không phải svc: policy được cache trong bộ nhớ từng
+		// instance, dùng instance mới để đọc đúng hàng vừa ghi mà không làm bẩn
+		// cache của svc (các nhóm sau còn dùng).
+		empty, e := newService().MentionSuggestions(ctx, target.Ref(), member, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(empty) != 0 {
+			t.Errorf("scope=none vẫn gợi ý %d người mà không ai nhắc được", len(empty))
+		}
+		if e = repo.UpsertCommentPolicy(ctx, "fixture", "*", raw, nil); e != nil {
+			t.Fatal(e)
+		}
+
+		body := "Nhờ @owner xem, @outsider thì ngoài luồng\n\n```\n@owner\n```"
+		c, _, e := svc.CreateComment(ctx, target.Ref(), member, "mention-scope", service.CreateCommentInput{BodyMD: body})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(c.BodyHTML, `data-mention="owner">Owner</span>`) {
+			t.Errorf("không hiện họ tên người trong luồng: %s", c.BodyHTML)
+		}
+		if strings.Contains(c.BodyHTML, "@Owner") {
+			t.Errorf("vẫn còn ký tự @ trước họ tên: %s", c.BodyHTML)
+		}
+		if !strings.Contains(c.BodyHTML, `data-mention="outsider">@outsider</span>`) || strings.Contains(c.BodyHTML, "Người Ngoài Luồng") {
+			t.Errorf("người ngoài luồng phải giữ nguyên @code: %s", c.BodyHTML)
+		}
+
+		// Chỉ người trong luồng vào comment_mentions.
+		rows, e2 := pool.Query(ctx, `SELECT profile_uuid FROM comment_mentions WHERE comment_id=$1`, c.ID)
+		if e2 != nil {
+			t.Fatal(e2)
+		}
+		defer rows.Close()
+		got := []string{}
+		for rows.Next() {
+			var u string
+			rows.Scan(&u)
+			got = append(got, u)
+		}
+		if len(got) != 1 || got[0] != owner {
+			t.Fatalf("comment_mentions=%v, phải đúng một mình owner (%s)", got, owner)
+		}
+
+		// Một bình luận → đúng MỘT thông báo cho người được nhắc, dù họ vừa là
+		// chủ tài nguyên vừa là người trong luồng.
+		var total int
+		var kinds string
+		pool.QueryRow(ctx, `SELECT count(*), COALESCE(string_agg(DISTINCT event_type, ','), '') FROM comment_notify_buffer WHERE comment_id=$1 AND recipient_profile_uuid=$2`, c.ID, owner).Scan(&total, &kinds)
+		if total != 1 || kinds != "ludiskus.comment.mentioned" {
+			t.Fatalf("owner nhận %d thông báo (%s), phải đúng một thông báo mention", total, kinds)
+		}
+	})
+	t.Run("mention_space_scope_uses_space_members", func(t *testing.T) {
+		// Nhánh scope="space" đi đường khác hẳn nhánh participants: nó tra danh
+		// sách thành viên Space. Không có nhóm này thì nửa kia của phạm vi mention
+		// hoàn toàn không được kiểm.
+		const spaceUUID = "10000000-0000-4000-8000-0000000000aa"
+		const spaceOnly = "20000000-0000-4000-8000-0000000000aa"
+		exec(`INSERT INTO space_cache(space_uuid,name,is_public,creator_profile_uuid) VALUES($1,'Space bình luận',true,$2) ON CONFLICT DO NOTHING`, spaceUUID, owner)
+		exec(`INSERT INTO profile_cache(profile_uuid,code,name,is_active,created_at) VALUES($1,'spaceonly','Chỉ Trong Space',true,now()-interval '1 year') ON CONFLICT DO NOTHING`, spaceOnly)
+		exec(`INSERT INTO space_member_cache(space_uuid,profile_uuid,role) VALUES($1,$2,'member') ON CONFLICT DO NOTHING`, spaceUUID, spaceOnly)
+
+		spacePolicy := domain.DefaultCommentPolicy()
+		spacePolicy.PublicRead = true
+		spacePolicy.Mentions.Scope = "space"
+		spaceRaw, _ := json.Marshal(spacePolicy)
+		if e := repo.UpsertCommentPolicy(ctx, "fixture", "spaced", spaceRaw, nil); e != nil {
+			t.Fatal(e)
+		}
+		spaceTarget, e := repo.UpsertCommentTarget(ctx, domain.CommentTarget{ServiceCode: "fixture", ResourceType: "spaced", ResourceID: "s1",
+			SpaceUUID: ptr(spaceUUID), OwnerType: &ownerType, OwnerID: ptr(owner), Title: "Có Space", CanonicalPath: "/fixture/s1",
+			Visibility: "public", State: "active", ThreadState: "open", Capabilities: json.RawMessage(`{}`)})
+		if e != nil {
+			t.Fatal(e)
+		}
+
+		// spaceOnly CHƯA từng bình luận ở luồng này — nếu nhánh space không chạy
+		// thì nhánh participants sẽ không thấy họ, và phép thử sẽ đỏ.
+		var isParticipant bool
+		pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM comment_participants WHERE target_id=$1 AND profile_uuid=$2)`, spaceTarget.ID, spaceOnly).Scan(&isParticipant)
+		if isParticipant {
+			t.Fatal("tiền đề hỏng: spaceOnly đã trong luồng")
+		}
+		svcSpace := newService()
+		got, e := svcSpace.MentionSuggestions(ctx, spaceTarget.Ref(), owner, "trong space")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(got) != 1 || got[0].ProfileUUID != spaceOnly {
+			t.Fatalf("nhánh space không lấy theo thành viên Space: %+v", got)
+		}
+		// member là thành viên fixture nhưng KHÔNG thuộc Space này → không được gợi ý.
+		out, e := svcSpace.MentionSuggestions(ctx, spaceTarget.Ref(), owner, "Member")
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, v := range out {
+			if v.ProfileUUID == member {
+				t.Errorf("gợi ý lọt người ngoài Space: %+v", out)
+			}
+		}
+	})
 	t.Run("public_visibility_search_and_tombstone", func(t *testing.T) {
 		c := insert("Từ khóa nghiệm thu", "search")
 		if _, e := svc.PublicCommentThread(ctx, target.Ref()); e != nil {

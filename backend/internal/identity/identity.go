@@ -202,45 +202,60 @@ func (s *Service) SyncMembers(ctx context.Context, spaceUUID string) ([]domain.C
 	if !s.Enabled() {
 		return nil, fmt.Errorf("hipcore client chưa cấu hình")
 	}
-	raw, status, err := s.get(ctx, "/api/spaces/"+url.PathEscape(spaceUUID)+"/members?per_page=1000")
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusNotFound {
-		return nil, domain.ErrNotFound
-	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("hipcore members status %d", status)
-	}
-	var body struct {
-		Data []struct {
-			UUID  string `json:"uuid"`
-			Role  string `json:"role"`
-			Pivot struct {
-				Role string `json:"role"`
-			} `json:"pivot"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return nil, err
-	}
-	ms := make([]domain.CachedMember, 0, len(body.Data))
+	// PHẢI duyệt hết trang. Trước đây chỉ lấy một trang `per_page=1000` rồi
+	// ReplaceMembers, nên Space quá 1.000 thành viên thì người thứ 1.001 trở đi
+	// biến mất khỏi cache — mà cache này cũng là nơi Role()/IsMember() tra, tức
+	// họ mất luôn quyền đọc/đăng bài chứ không chỉ vắng mặt trong gợi ý mention.
+	ms := []domain.CachedMember{}
 	now := time.Now()
-	for _, m := range body.Data {
-		if m.UUID == "" {
-			continue
+	for page := 1; ; page++ {
+		raw, status, err := s.get(ctx, fmt.Sprintf("/api/spaces/%s/members?page=%d&per_page=%d", url.PathEscape(spaceUUID), page, 200))
+		if err != nil {
+			return nil, err
 		}
-		role := m.Role
-		if role == "" {
-			role = m.Pivot.Role
+		if status == http.StatusNotFound {
+			return nil, domain.ErrNotFound
 		}
-		if role == "" {
-			role = domain.RoleMember
+		if status != http.StatusOK {
+			return nil, fmt.Errorf("hipcore members status %d", status)
 		}
-		ms = append(ms, domain.CachedMember{
-			SpaceUUID: spaceUUID, ProfileUUID: m.UUID, Role: role, SyncedAt: now,
-		})
+		var body struct {
+			Data []struct {
+				UUID  string `json:"uuid"`
+				Role  string `json:"role"`
+				Pivot struct {
+					Role string `json:"role"`
+				} `json:"pivot"`
+			} `json:"data"`
+			Pagination pagination `json:"pagination"`
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return nil, err
+		}
+		for _, m := range body.Data {
+			if m.UUID == "" {
+				continue
+			}
+			role := m.Role
+			if role == "" {
+				role = m.Pivot.Role
+			}
+			if role == "" {
+				role = domain.RoleMember
+			}
+			ms = append(ms, domain.CachedMember{
+				SpaceUUID: spaceUUID, ProfileUUID: m.UUID, Role: role, SyncedAt: now,
+			})
+		}
+		// len(body.Data) == 0 là chốt chặn thật sự: hasMore() trả true khi
+		// last_page = 0 (API không kèm pagination), thiếu chốt này là vòng lặp
+		// vô hạn.
+		if len(body.Data) == 0 || !body.Pagination.hasMore() {
+			break
+		}
 	}
+	// ReplaceMembers CHỈ gọi một lần sau khi gom đủ mọi trang: gọi theo từng
+	// trang thì trang sau xoá sạch trang trước.
 	if err := s.store.ReplaceMembers(ctx, spaceUUID, ms); err != nil {
 		return nil, err
 	}

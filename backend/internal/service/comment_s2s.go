@@ -45,6 +45,9 @@ func (s *Service) CreateSystemComment(ctx context.Context, serviceCode string, i
 		return nil, false, domain.ErrValidation
 	}
 	source := serviceCode
+	// KHÔNG phân giải tên cho bình luận do service viết: đường S2S cố ý không ghi
+	// comment_mentions và không báo tin cho ai (mentions = nil bên dưới). Hiện họ
+	// tên ở đây sẽ hứa một thông báo không bao giờ đến.
 	c := domain.Comment{TargetID: t.ID, ParentID: in.ParentID, AuthorKind: "service", AuthorProfileUUID: in.AuthorProfileUUID, SourceService: &source, BodyMD: body, BodyHTML: s.md.RenderBasic(body), BodyHash: commentBodyHash(body), MarkdownMode: "basic", Status: domain.CommentPublished, IdempotencyKey: &in.IdempotencyKey}
 	if in.ParentID != nil {
 		parent, e := s.repo.GetComment(ctx, *in.ParentID)

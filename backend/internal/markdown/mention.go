@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"html"
 	"regexp"
 	"strings"
 	"unicode"
@@ -66,15 +67,28 @@ func (mentionParser) Parse(parent ast.Node, block text.Reader, pc parser.Context
 	}
 	handle := string(line[m[2]:m[3]])
 	block.Advance(m[1])
-	// Chưa phân giải được (người ngoài Space, code sai) thì giữ nguyên "@code":
-	// bỏ "@" lúc này sẽ biến chữ tác giả gõ thành một từ trơ vô nghĩa.
-	label := "@" + handle
-	if resolve, ok := pc.Get(mentionResolverKey).(MentionResolver); ok && resolve != nil {
-		if name, found := resolve(handle); found && name != "" {
-			label = name
+	resolve, _ := pc.Get(mentionResolverKey).(MentionResolver)
+	return &mentionNode{Handle: handle, Label: mentionLabel(handle, resolve)}
+}
+
+// mentionLabel trả nhãn hiển thị: họ tên nếu phân giải được, nếu không thì giữ
+// nguyên "@handle" như người dùng gõ — bỏ "@" lúc chưa biết là ai sẽ biến chữ
+// tác giả gõ thành một từ trơ vô nghĩa.
+func mentionLabel(handle string, resolve MentionResolver) string {
+	if resolve != nil {
+		if name, ok := resolve(handle); ok && name != "" {
+			return name
 		}
 	}
-	return &mentionNode{Handle: handle, Label: label}
+	return "@" + handle
+}
+
+// mentionSpan là ĐỊNH NGHĨA DUY NHẤT của chip mention trong HTML. Cả bộ render
+// goldmark (rich/basic) lẫn chế độ plain đều đi qua đây, nên hai đường không thể
+// sinh ra hai hình dạng khác nhau — mà chỉ một hình dạng mới lọt qua bộ lọc
+// bluemonday và mới khớp CSS `.mention`.
+func mentionSpan(handle, label string) string {
+	return `<span class="mention" data-mention="` + html.EscapeString(handle) + `">` + html.EscapeString(label) + `</span>`
 }
 
 type mentionRenderer struct{}
@@ -88,11 +102,7 @@ func (mentionRenderer) render(w util.BufWriter, source []byte, node ast.Node, en
 		return ast.WalkContinue, nil
 	}
 	n := node.(*mentionNode)
-	_, _ = w.WriteString(`<span class="mention" data-mention="`)
-	_, _ = w.Write(util.EscapeHTML([]byte(n.Handle)))
-	_, _ = w.WriteString(`">`)
-	_, _ = w.Write(util.EscapeHTML([]byte(n.Label)))
-	_, _ = w.WriteString(`</span>`)
+	_, _ = w.WriteString(mentionSpan(n.Handle, n.Label))
 	return ast.WalkContinue, nil
 }
 
@@ -110,7 +120,21 @@ func (mentionExtension) Extend(m goldmark.Markdown) {
 // thô) ở chỗ @ nằm trong code block không còn bị coi là nhắc tên — dán một đoạn
 // log hay file cấu hình có "@ai-đó" không còn báo tin cho người ta nữa.
 func (r *Renderer) MentionsIn(src string) []string {
-	doc := r.richMD.Parser().Parse(text.NewReader([]byte(src)))
+	return r.MentionsInMode("rich", src)
+}
+
+// MentionsInMode trích theo cây cú pháp của ĐÚNG chế độ sẽ dùng để render. Chế
+// độ "plain" không có parser nên dùng lại regex — khớp với cách renderPlain dựng
+// chip, nên chip và danh sách trích vẫn không lệch nhau.
+func (r *Renderer) MentionsInMode(mode, src string) []string {
+	if mode == "plain" {
+		return Mentions(src)
+	}
+	md := r.basicMD
+	if mode == "rich" {
+		md = r.richMD
+	}
+	doc := md.Parser().Parse(text.NewReader([]byte(src)))
 	seen := map[string]bool{}
 	out := []string{}
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {

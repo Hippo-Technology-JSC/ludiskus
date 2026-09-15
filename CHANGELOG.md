@@ -1,5 +1,56 @@
 ## 2026-09-15
 
+### Hiệu năng gợi ý @mention cho Space vài nghìn thành viên
+- Tìm thành viên nay lọc và cắt **ngay trong SQL** (`space_member_cache ⨝ profile_cache`).
+  Đo trên Space 5.004 thành viên: **1,356 s → 24 ms** khi lọc, **1,272 s → 16 ms** khi truy
+  vấn rỗng. Dùng chung cho `ForumMembers` (diễn đàn) và nhánh `scope="space"` của LuComment.
+- Dùng `position()` thay `LIKE '%…%'`: khớp chuỗi con y hệt `strings.Contains` và không có ký
+  tự đại diện để phải escape — gõ `%` chỉ là gõ một ký tự, không thành "khớp tất cả".
+- Thứ tự kết quả nay xác định (khớp từ đầu chuỗi trước → tên → uuid). Danh sách bị cắt ở
+  10/20 nên trước đây thứ tự tuỳ Postgres, gõ cùng một chữ hai lần có thể ra hai danh sách.
+- Bù phần chênh: thành viên chưa có hàng `profile_cache` bị truy vấn join bỏ qua, trong khi
+  đường cũ nạp lười từ HipCore nên vẫn thấy. Nạp lười đúng phần thiếu, có chặn trên.
+- **Sửa lỗi nghiêm trọng phát hiện kèm**: `SyncMembers` chỉ lấy MỘT trang `per_page=1000` rồi
+  `ReplaceMembers`, nên Space quá 1.000 thành viên thì người thứ 1.001 trở đi biến mất khỏi
+  `space_member_cache`. Vì `Role()`/`IsMember()` tra chính bảng đó, những người ấy **mất luôn
+  quyền đọc và đăng bài**, không chỉ vắng mặt trong gợi ý mention. Nay duyệt hết trang và chỉ
+  `ReplaceMembers` một lần sau khi gom đủ.
+- Đạt: 2 unit test phân trang (4.500 thành viên qua 23 trang; chốt chặn vòng lặp vô hạn khi
+  API không kèm pagination), nhóm nghiệm thu `member_suggest_scales_to_thousands` trên
+  PostgreSQL thật (5.004 thành viên, có ngưỡng 500 ms bắt việc quay lại nạp từng Profile),
+  nhóm `mention_space_scope_uses_space_members` phủ nhánh space của LuComment. Năm đối chứng
+  ngược đều đỏ đúng chỗ.
+
+### LuComment — mention hiện họ tên và siết đúng context
+- `@code` trong bình luận nay render thành chip chỉ hiện **họ tên**. Extension mention
+  được gắn cho cả ba chế độ markdown (`plain`/`basic`/`rich`) — LuComment mặc định chạy
+  `basic`, nên nếu chỉ `rich` biết đổi tên thì bình luận vẫn hiện `@code`.
+- Policy `basic` của bluemonday phải khai thêm `span` + `class` + `data-mention`, nếu không
+  chip bị cắt sạch sau khi sanitize.
+- **Sửa lệch so với bản thiết kế**: docs/comment/08 ghi Profile ngoài scope "vẫn render tên
+  (đẹp)". Làm vậy là rò tên người ngoài context — gõ `@code` của bất kỳ Profile nào trong hệ
+  thống cũng khiến họ tên thật hiện ra cho cả luồng. Nay ngoài scope **giữ nguyên `@code`**,
+  nên hiện tên ⟺ được báo tin.
+- Nhãn hiển thị và hàng `comment_mentions` đi qua **một hàm duy nhất**
+  (`commentMentionTarget`), trần `max_per_comment` áp cho cả hai. Bình luận do service viết
+  (S2S) không phân giải tên vì đường đó cố ý không báo tin cho ai.
+- Trích mention chuyển sang `MentionsInMode` theo cây cú pháp của đúng chế độ, nên `@ai-đó`
+  trong khối code không còn báo tin.
+- **Ba lệch trong danh sách gợi ý** giữa "được gợi ý" và "nhắc được": `scope = "none"` vẫn gợi
+  ý người trong khi không ai nhắc được; chủ tài nguyên nhắc được nhưng không được gợi ý nếu
+  chưa từng bình luận; Profile đã ngừng hoạt động vẫn được gợi ý. Đã sửa cả ba.
+- Chống trùng thông báo của LuComment **vốn đã đúng** (`commentNotifyRows` loại người được
+  nhắc khỏi `created`/`replied`) — khác diễn đàn; nay có cổng chặn giữ nguyên điều đó.
+- CSS `.mention` chuyển thành quy tắc trần thay vì lồng trong `.prose-forum`: cùng HTML ấy còn
+  hiện ở bình luận (`.prose`), hàng chờ kiểm duyệt và trung tâm bình luận (không class nào).
+- Đạt: 3 unit test markdown đa chế độ (có cổng parity riêng cho từng chế độ), nhóm nghiệm thu
+  `mention_shows_name_and_stays_in_context` trên PostgreSQL thật, Go build/vet/test, frontend
+  typecheck + 14 vitest. Bốn đối chứng ngược đều đỏ đúng chỗ.
+- **Còn nợ**: `MentionSuggestions` nhánh `space` tra Profile theo TỪNG thành viên
+  (`ident.Profile` mỗi người) rồi mới lọc theo `q` — Space vài nghìn thành viên là vài nghìn
+  lượt tra cho mỗi lần gõ. Cần một truy vấn join `space_member_cache ⨝ profile_cache` lọc
+  ngay trong SQL; chưa làm vì nằm ngoài phạm vi lần sửa này.
+
 ### Thông báo mention — sửa 2 lỗi
 - **Nhận hai thông báo cho một bài**: người được @mention gần như luôn đang theo dõi
   chủ đề, nên nhận cả `topic.replied` lẫn `post.mentioned`. Nay họ bị loại khỏi danh

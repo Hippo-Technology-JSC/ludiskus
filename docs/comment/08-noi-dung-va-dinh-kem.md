@@ -58,7 +58,10 @@ số hiện tại và trần (không phải "invalid input").
 
 ## 8.4 @mention
 
-Tái dùng `markdown.Mentions(src)` (regex `@code`/`@uuid`, đã khử trùng lặp, chữ thường).
+Tái dùng `Renderer.MentionsInMode(mode, src)` — trích theo **cây cú pháp của đúng chế độ
+markdown sẽ dùng để render**, không phải regex trên văn bản thô. Nhờ vậy dán một đoạn log hay
+cấu hình có `@ai-đó` trong khối code không báo tin cho người ta. (`markdown.Mentions` dạng regex
+vẫn còn, nay chỉ dùng cho chế độ `plain` vốn không có parser.)
 
 Giải handle → Profile:
 
@@ -75,11 +78,39 @@ Giải handle → Profile:
 | `participants` | Phải có hàng trong `comment_participants` của Target, hoặc là chủ nội dung |
 | `none` | Không mention ai; `@…` chỉ là văn bản |
 
-Profile bị loại khỏi scope: **vẫn render tên** (đẹp) nhưng **không** vào `comment_mentions` và
-**không** nhận thông báo. Đây là chống dùng mention để spam người ngoài cuộc.
+### Hiển thị: họ tên, và CHỈ khi thật sự nhắc được
+
+`body_html` render `@code` thành chip `<span class="mention" data-mention="code">Họ Tên</span>`
+— người đọc thấy **họ tên trần**, không thấy code và không có dấu `@` đứng trước. Cả ba chế độ
+markdown (`plain`/`basic`/`rich`) đều dựng chip; LuComment mặc định chạy `basic`.
+
+> **Sửa so với bản thiết kế đầu:** trước đây mục này ghi Profile ngoài scope "vẫn render tên
+> (đẹp)". Làm vậy là **rò tên người ngoài context**: bất kỳ ai gõ `@code` của bất kỳ Profile nào
+> trong toàn hệ thống cũng khiến họ tên thật của người đó hiện ra cho mọi người đọc luồng ấy —
+> đúng thứ mà LuComment phải tránh, vì nó gắn lên tài nguyên của nhiều service khác nhau.
+> Nay Profile **ngoài scope giữ nguyên `@code`**, đúng chữ tác giả gõ. Chỉ người thật sự vào
+> `comment_mentions` mới được hiện tên, nên **hiện tên ⟺ được báo tin**, không có nửa vời.
+
+Cả nhãn hiển thị lẫn hàng `comment_mentions` đều đi qua **một hàm duy nhất**
+(`Service.commentMentionTarget`), nên hai thứ không thể lệch nhau. Trần
+`max_per_comment` áp cho cả hai: mention thứ 11 không được báo tin thì cũng không được hiện tên.
+
+Bình luận do **service** viết (đường S2S) **không** phân giải tên: đường đó cố ý không ghi
+`comment_mentions` và không báo tin cho ai, nên hiện họ tên ở đó là hứa một thông báo không
+bao giờ đến.
 
 Gợi ý mention ở frontend: `GET /comments/r/{ref}/mention-suggest?q=` trả ≤ 10 Profile **đúng
-theo scope** — không bao giờ để frontend tự đoán danh sách.
+theo scope** — không bao giờ để frontend tự đoán danh sách. Danh sách ứng viên dựng theo đúng
+phạm vi mà `commentMentionTarget` cho phép:
+
+- `scope = "none"` → trả **rỗng**. Gợi ý một cái tên mà hệ thống sẽ lặng lẽ vứt đi là mời người
+  dùng làm một việc vô nghĩa.
+- nhánh `participants` → gồm cả **chủ tài nguyên**, kể cả khi họ chưa từng bình luận (vì họ
+  nhắc được). Thiếu họ là có người nhắc được mà không ai tìm thấy.
+- Profile đã ngừng hoạt động **không** được gợi ý (giống `ForumMembers` của diễn đàn).
+- Nhánh `scope = "space"` lọc và cắt **ngay trong SQL** (`Repo.SearchSpaceMemberProfiles`),
+  dùng chung với `ForumMembers` của diễn đàn — xem [05 §5.5](../05-cache-profile-space.md).
+  Space 5.004 thành viên: 1,356 s → 24 ms.
 
 ## 8.5 Đính kèm
 

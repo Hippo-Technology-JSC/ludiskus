@@ -37,12 +37,16 @@ func New() *Renderer {
 	rich.RequireNoFollowOnLinks(true)
 	rich.AddTargetBlankToFullyQualifiedLinks(true)
 	basicMD := goldmark.New(
-		goldmark.WithExtensions(extension.Strikethrough, extension.Linkify),
+		goldmark.WithExtensions(extension.Strikethrough, extension.Linkify, mentionExtension{}),
 		goldmark.WithRendererOptions(gmhtml.WithHardWraps()),
 	)
 	basic := bluemonday.NewPolicy()
-	basic.AllowElements("p", "br", "strong", "em", "del", "code", "pre", "blockquote", "ul", "ol", "li", "a")
+	basic.AllowElements("p", "br", "strong", "em", "del", "code", "pre", "blockquote", "ul", "ol", "li", "a", "span")
 	basic.AllowAttrs("href", "title").OnElements("a")
+	// Chỉ cho span mang đúng hai thuộc tính của chip mention, và class phải là
+	// "mention" — không mở cửa class tự do như policy rich.
+	basic.AllowAttrs("class").Matching(regexp.MustCompile(`^mention$`)).OnElements("span")
+	basic.AllowAttrs("data-mention").Matching(regexp.MustCompile(`^` + handlePattern + `$`)).OnElements("span")
 	basic.AllowStandardURLs()
 	basic.RequireNoFollowOnLinks(true)
 	basic.AddTargetBlankToFullyQualifiedLinks(true)
@@ -57,22 +61,36 @@ func (r *Renderer) Render(src string) string {
 // RenderWithMentions như Render nhưng đổi "@code" thành họ tên do resolve trả
 // về. Handle gốc vẫn nằm ở data-mention để còn dựng lại được sau này.
 func (r *Renderer) RenderWithMentions(src string, resolve MentionResolver) string {
+	return r.RenderModeWithMentions("rich", src, resolve)
+}
+
+// RenderModeWithMentions là RenderMode có phân giải tên. Cả ba chế độ đều dựng
+// chip: LuComment mặc định chạy "basic", nên nếu chỉ "rich" biết đổi tên thì
+// bình luận vẫn hiện @code trong khi bài viết hiện họ tên.
+func (r *Renderer) RenderModeWithMentions(mode, src string, resolve MentionResolver) string {
 	if resolve == nil {
-		return r.Render(src)
+		return r.RenderMode(mode, src)
+	}
+	if mode == "plain" {
+		return renderPlain(src, resolve)
+	}
+	md, policy := r.basicMD, r.policyBasic
+	if mode == "rich" {
+		md, policy = r.richMD, r.policyRich
 	}
 	pc := parser.NewContext()
 	pc.Set(mentionResolverKey, resolve)
 	var buf bytes.Buffer
-	if err := r.richMD.Convert([]byte(src), &buf, parser.WithContext(pc)); err != nil {
-		return r.policyRich.Sanitize(src)
+	if err := md.Convert([]byte(src), &buf, parser.WithContext(pc)); err != nil {
+		return policy.Sanitize(src)
 	}
-	return r.policyRich.Sanitize(buf.String())
+	return policy.Sanitize(buf.String())
 }
 
 // RenderMode renders comment markdown using the requested, allowlisted level.
 func (r *Renderer) RenderMode(mode, src string) string {
 	if mode == "plain" {
-		return renderPlain(src)
+		return renderPlain(src, nil)
 	}
 	md, policy := r.basicMD, r.policyBasic
 	if mode == "rich" {
@@ -90,13 +108,21 @@ func (r *Renderer) RenderPlain(src string) string { return r.RenderMode("plain",
 
 var urlRE = regexp.MustCompile(`https?://[^\s<]+`)
 
-func renderPlain(src string) string {
+// renderPlain không có parser, nên chip mention ở đây dựng bằng regex trên văn
+// bản ĐÃ escape. An toàn vì handle chỉ gồm chữ/số/._- (không có ký tự nào bị
+// escape làm đổi hình), và mentionRe đòi ký tự trước @ là khoảng trắng/"(" nên
+// không đụng vào email hay đuôi URL.
+func renderPlain(src string, resolve MentionResolver) string {
 	escaped := html.EscapeString(src)
 	for _, pair := range [][2]string{{"javascript:", "javascript&#58;"}, {"data:text/html", "data&#58;text/html"}, {"onerror=", "onerror&#61;"}, {"onload=", "onload&#61;"}, {"onclick=", "onclick&#61;"}, {"onfocus=", "onfocus&#61;"}, {"ontoggle=", "ontoggle&#61;"}, {"onstart=", "onstart&#61;"}} {
 		escaped = strings.ReplaceAll(escaped, pair[0], pair[1])
 	}
 	escaped = urlRE.ReplaceAllStringFunc(escaped, func(v string) string {
 		return `<a href="` + v + `" rel="nofollow noopener" target="_blank">` + v + `</a>`
+	})
+	escaped = mentionRe.ReplaceAllStringFunc(escaped, func(v string) string {
+		m := mentionRe.FindStringSubmatch(v)
+		return m[1] + mentionSpan(m[2], mentionLabel(m[2], resolve))
 	})
 	return strings.ReplaceAll(escaped, "\n", "<br>\n")
 }

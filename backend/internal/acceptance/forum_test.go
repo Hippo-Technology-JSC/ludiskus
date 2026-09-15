@@ -539,6 +539,74 @@ func TestForumAcceptance(t *testing.T) {
 		}
 		t.Logf("outbox delivered %d events; no real user messages sent", sent)
 	})
+	t.Run("member_suggest_scales_to_thousands", func(t *testing.T) {
+		// Space 5.000 thành viên. Đường cũ nạp TỪNG Profile rồi mới lọc trong Go,
+		// nên mỗi lần gõ phím là 5.000 lượt tra; đường mới lọc và cắt trong SQL.
+		const total = 5000
+		exec(`INSERT INTO profile_cache(profile_uuid, code, name)
+			SELECT gen_random_uuid(), 'bulk'||i, 'Thành viên số '||i FROM generate_series(1,$1) i`, total)
+		exec(`INSERT INTO space_member_cache(space_uuid, profile_uuid, role)
+			SELECT $1, profile_uuid, 'member' FROM profile_cache WHERE code LIKE 'bulk%'`, space)
+		// Một người duy nhất mang tên riêng, nằm lẫn giữa 5.000 người kia.
+		exec(`UPDATE profile_cache SET name='Đặng Thị Kim Chi', code='kimchi' WHERE code='bulk4321'`)
+		var members int
+		pool.QueryRow(ctx, `SELECT count(*) FROM space_member_cache WHERE space_uuid=$1`, space).Scan(&members)
+		if members < total {
+			t.Fatalf("chỉ nạp được %d thành viên, phép đo quy mô vô nghĩa", members)
+		}
+
+		start := time.Now()
+		found, err := svc.ForumMembers(ctx, space, owner, "kim chi")
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(found) != 1 || found[0].Name != "Đặng Thị Kim Chi" {
+			t.Fatalf("không tìm đúng người giữa %d thành viên: %+v", members, found)
+		}
+		// Ngưỡng rộng rãi: cốt để bắt việc quay lại nạp từng Profile một, chứ
+		// không phải đo p95. Đường cũ với 5.000 thành viên và cache nguội tốn
+		// hàng nghìn truy vấn.
+		if elapsed > 500*time.Millisecond {
+			t.Errorf("tìm thành viên mất %v — dấu hiệu quay lại nạp từng Profile", elapsed)
+		}
+		t.Logf("ForumMembers trên %d thành viên: %v", members, elapsed)
+
+		// Truy vấn rỗng vẫn phải cắt đúng 20 và KHÔNG quét hết.
+		start = time.Now()
+		all, err := svc.ForumMembers(ctx, space, owner, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) != 20 {
+			t.Errorf("q rỗng trả %d, phải cắt ở 20", len(all))
+		}
+		t.Logf("ForumMembers q rỗng trên %d thành viên: %v", members, time.Since(start))
+
+		// Ký tự đại diện của LIKE phải là ký tự thường, không phải "khớp tất cả".
+		wild, err := svc.ForumMembers(ctx, space, owner, "%")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(wild) != 0 {
+			t.Errorf(`gõ "%%" trả %d người — ký tự đại diện lọt vào SQL`, len(wild))
+		}
+
+		// Cùng một truy vấn hai lần phải ra cùng một danh sách: kết quả bị cắt ở
+		// 20 nên thứ tự quyết định ai được thấy.
+		first, _ := svc.ForumMembers(ctx, space, owner, "thành viên")
+		second, _ := svc.ForumMembers(ctx, space, owner, "thành viên")
+		if len(first) != len(second) {
+			t.Fatalf("hai lượt gọi trả %d và %d", len(first), len(second))
+		}
+		for i := range first {
+			if first[i].ProfileUUID != second[i].ProfileUUID {
+				t.Fatalf("thứ tự không ổn định ở vị trí %d", i)
+			}
+		}
+		exec(`DELETE FROM space_member_cache WHERE space_uuid=$1 AND profile_uuid IN (SELECT profile_uuid FROM profile_cache WHERE code LIKE 'bulk%' OR code='kimchi')`, space)
+		exec(`DELETE FROM profile_cache WHERE code LIKE 'bulk%' OR code='kimchi'`)
+	})
 	t.Run("http_latency_and_metrics", func(t *testing.T) {
 		latencies := make([]time.Duration, 40)
 		for i := range latencies {
