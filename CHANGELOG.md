@@ -1,5 +1,27 @@
 ## 2026-09-15
 
+### Thông báo mention — sửa 2 lỗi
+- **Nhận hai thông báo cho một bài**: người được @mention gần như luôn đang theo dõi
+  chủ đề, nên nhận cả `topic.replied` lẫn `post.mentioned`. Nay họ bị loại khỏi danh
+  sách nhận thông báo trả lời; mention là cái được giữ vì nói rõ hơn hẳn.
+- **Nội dung thông báo chung chung**: `rules` của lunoti **rỗng hoàn toàn** — ludiskus
+  chỉ đăng ký EventType và Template chứ chưa bao giờ đăng ký Rule. Không có Rule khớp,
+  lunoti rơi vào nhánh phát ngầm và mọi thông báo đều là "Thông báo mới / Bạn có một
+  cập nhật mới.", nên bản sửa nội dung template ngày 2026-09-14 không hề được đọc tới.
+  `RegisterEventTypes` nay tạo/cập nhật Rule nối event-type với template cùng code.
+- Rule lấy `category` theo event-type (lệch là tuỳ chọn nhận thông báo của người dùng
+  không còn khớp) và **không** gửi `channels` để lunoti dùng `defaultChannels`.
+- Thêm cổng chặn thứ ba: lunoti thay `{{biến}}` không có trong data bằng **chuỗi rỗng**,
+  nên gõ nhầm tên biến lúc sửa lời văn chỉ làm thông báo cụt mất một mảnh chứ không
+  báo lỗi ở đâu. Test soi mọi `{{biến}}` trong seed so với các key ludiskus thật sự gửi.
+- Đạt: 3 unit test (lunoti giả + biến template), cổng chặn "một bài → một thông báo"
+  trong nhóm nghiệm thu PostgreSQL thật, Go build/vet/test. Cả ba cổng đều qua đối
+  chứng ngược. Đã build lại + restart `ludiskus-api`/`ludiskus-worker` trên stack dev:
+  10 Rule đã được tạo trong lunoti, mỗi cái trỏ đúng template cùng code.
+- **Còn nợ**: chưa xem tận mắt một thông báo mới sinh ra sau khi có Rule — cần đăng
+  một bài có mention trên stack thật. Thông báo CŨ giữ nguyên nội dung chung chung vì
+  `notifications.title/body` được lưu lúc phát, không render lại.
+
 ### Diễn đàn — mention hiện họ tên
 - `@code` trong bài viết nay render thành chip chỉ hiện **họ tên**, không kèm dấu
   `@` và không kèm code; soạn thảo giữ nguyên cách gõ `@` + code và danh sách gợi ý.

@@ -350,6 +350,36 @@ func TestForumAcceptance(t *testing.T) {
 		if len(mentioned) != 1 || mentioned[0] != member {
 			t.Fatalf("post_mentions=%v, phải đúng một mình tester1 (%s) — tester3 nằm trong khối code nên không được báo tin", mentioned, member)
 		}
+
+		// Một bài → ĐÚNG MỘT thông báo cho người được nhắc. tester1 vừa theo dõi
+		// chủ đề (đã trả lời ở nhóm trước) vừa được nhắc tên, nên nếu không loại
+		// khỏi danh sách nhận "có trả lời mới" thì chuông của họ kêu hai lần.
+		var subscribed bool
+		pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM subscriptions WHERE profile_uuid=$1 AND target_type='topic' AND target_id=$2 AND NOT muted)`, member, topic.ID).Scan(&subscribed)
+		if !subscribed {
+			t.Fatal("tiền đề hỏng: tester1 không theo dõi chủ đề, phép thử trùng thông báo luôn xanh")
+		}
+		events := map[string][]string{}
+		erows, e2 := pool.Query(ctx, `
+			SELECT event_type, COALESCE(jsonb_agg(r->>'profile_uuid') FILTER (WHERE r IS NOT NULL), '[]'::jsonb)::text
+			FROM outbox, LATERAL jsonb_array_elements(COALESCE(payload->'recipients','[]'::jsonb)) r
+			WHERE idempotency_key IN ($1, $2) GROUP BY event_type`,
+			"reply:"+post.ID, "mention:"+post.ID)
+		if e2 != nil {
+			t.Fatal(e2)
+		}
+		defer erows.Close()
+		for erows.Next() {
+			var kind, recips string
+			erows.Scan(&kind, &recips)
+			events[kind] = []string{recips}
+		}
+		if got := events["ludiskus.post.mentioned"]; len(got) != 1 || !strings.Contains(got[0], member) {
+			t.Errorf("người được nhắc phải nhận thông báo mention: %v", events)
+		}
+		if got := events["ludiskus.topic.replied"]; len(got) == 1 && strings.Contains(got[0], member) {
+			t.Errorf("người được nhắc vẫn nằm trong thông báo trả lời → nhận hai lần: %v", events)
+		}
 	})
 	t.Run("four_moderation_modes_and_reports", func(t *testing.T) {
 		for _, mode := range []string{"none", "post", "pre", "first_post"} {

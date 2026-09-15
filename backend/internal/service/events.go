@@ -18,9 +18,12 @@ func (s *Service) enqueueEvent(ctx context.Context, ev notify.Event) {
 	s.repo.EnqueueOutbox(ctx, ev.EventType, ev.IdempotencyKey, payload, s.cfg.OutboxMaxAttempts)
 }
 
-func recipientsOf(uuids []string, exclude string) []notify.Recipient {
+func recipientsOf(uuids []string, exclude ...string) []notify.Recipient {
 	out := []notify.Recipient{}
-	seen := map[string]bool{exclude: true}
+	seen := map[string]bool{}
+	for _, u := range exclude {
+		seen[u] = true
+	}
 	for _, u := range uuids {
 		if u == "" || seen[u] {
 			continue
@@ -63,10 +66,19 @@ func (s *Service) afterPostPublished(ctx context.Context, p *domain.Post) {
 	}
 	url := s.topicURL(space, t, p.ID)
 
+	// Lấy mention TRƯỚC nhánh reply: người được nhắc tên phải bị loại khỏi danh
+	// sách nhận thông báo trả lời, nếu không họ nhận hai thông báo cho cùng một
+	// bài (người được nhắc tên gần như luôn đang theo dõi chủ đề — tác giả chủ
+	// đề thì "authored", người từng trả lời thì "participated").
+	mentions, _ := s.repo.MentionsForPost(ctx, p.ID)
+	mrecips := recipientsOf(mentions, p.AuthorProfileUUID)
+
 	// Reply: chỉ với trả lời (không phải post đầu).
 	if !p.IsFirst {
 		subs, _ := s.repo.SubscribersForTopic(ctx, t.ID, t.BoardID, t.SpaceUUID)
-		recips := recipientsOf(subs, p.AuthorProfileUUID)
+		// Bỏ luôn người được nhắc tên: thông báo mention nói rõ hơn hẳn
+		// "ai đó đã trả lời chủ đề bạn theo dõi", nên nó là cái được giữ lại.
+		recips := recipientsOf(subs, append([]string{p.AuthorProfileUUID}, mentions...)...)
 		if len(recips) > 0 {
 			data, _ := json.Marshal(map[string]any{
 				"actor": actorName, "space": spaceName(space), "topic": t.Title, "url": url,
@@ -81,8 +93,6 @@ func (s *Service) afterPostPublished(ctx context.Context, p *domain.Post) {
 	}
 
 	// Mention.
-	mentions, _ := s.repo.MentionsForPost(ctx, p.ID)
-	mrecips := recipientsOf(mentions, p.AuthorProfileUUID)
 	if len(mrecips) > 0 {
 		data, _ := json.Marshal(map[string]any{
 			"actor": actorName, "space": spaceName(space), "topic": t.Title,
