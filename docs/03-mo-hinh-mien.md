@@ -108,6 +108,17 @@ là trả lời, hỗ trợ lồng (`reply_to_id`).
 > **Mention**: khi lưu, service trích `@code`/`@uuid` trong `body_md`, phân giải
 > sang `profile_uuid` (qua cache) và ghi bảng `post_mentions` để đẩy event
 > mention sang lunoti ([08](08-tich-hop-lunoti.md)).
+>
+> **Hiển thị mention**: người soạn vẫn gõ `@code`, nhưng `body_html` render ra
+> chip `<span class="mention" data-mention="code">Họ Tên</span>` — đọc bài hay
+> xem trước đều thấy **đúng họ tên trần**, không có code và cũng không có dấu
+> `@` đứng trước. Riêng handle **không phân giải được** thì giữ nguyên `@code`
+> như tác giả gõ, vì bỏ `@` sẽ biến nó thành một từ trơ vô nghĩa. Bộ parse nằm trong goldmark
+> (`internal/markdown/mention.go`) nên `@` trong code span, code block, email và
+> URL không bị đụng tới. Chỉ thành viên Space mới đổi được sang tên; người ngoài
+> giữ nguyên `@code`, đúng quy tắc phân giải ở [05 §5.5](05-cache-profile-space.md).
+> `body_html` là **ảnh chụp lúc ghi**: đổi tên trong HipCore chỉ phản ánh vào bài
+> cũ khi bài được sửa lại, còn `data-mention` giữ code gốc để dựng lại được.
 
 ## 3.5 Interaction
 

@@ -409,7 +409,7 @@ func (s *Service) CreateBoard(ctx context.Context, spaceUUID, profileUUID string
 	if !validBoardKind(in.Kind) {
 		in.Kind = "forum"
 	}
-	html := s.md.Render(in.DescriptionMD)
+	html := s.renderBody(ctx, spaceUUID, in.DescriptionMD)
 	b := domain.Board{
 		SpaceUUID: spaceUUID, ParentID: in.ParentID, Code: in.Code, Name: in.Name,
 		Kind: in.Kind, Position: in.Position, IsLocked: in.IsLocked, MinRole: domain.RoleMember,
@@ -460,7 +460,7 @@ func (s *Service) UpdateBoard(ctx context.Context, boardID, profileUUID string, 
 		b.IsLocked = *in.IsLocked
 	}
 	if in.DescriptionMD != nil {
-		html := s.md.Render(*in.DescriptionMD)
+		html := s.renderBody(ctx, b.SpaceUUID, *in.DescriptionMD)
 		b.DescriptionMD = in.DescriptionMD
 		b.DescriptionHTML = &html
 	}

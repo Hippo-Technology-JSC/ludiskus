@@ -106,7 +106,7 @@ func (s *Service) ForumPreview(ctx context.Context, space, profile, body string)
 	if len(body) > 100000 {
 		return "", domain.ErrTooLarge
 	}
-	return s.md.Render(body), nil
+	return s.renderBody(ctx, space, body), nil
 }
 func (s *Service) validateForumAttachments(ctx context.Context, space, profile string, ids []string) error {
 	if len(ids) > s.cfg.MaxAttachments {

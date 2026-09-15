@@ -92,6 +92,14 @@ không thấy và Space riêng tư → từ chối (an toàn mặc định).
 - **Mention** `@code`/`@uuid` trong post: tra `profile_cache` theo `code`/`uuid`
   (miss → `GET /api/profiles/{uuid}`); chỉ phân giải tới Profile **là thành viên
   Space** (chống mention người ngoài cộng đồng).
+- Cùng một phép tra (`Service.resolveMention`) phục vụ **cả** việc ghi
+  `post_mentions` **lẫn** việc đổi `@code` thành họ tên khi render `body_html`.
+  Nhờ đi chung một cửa, người mà bài viết hiện tên đúng là người nhận thông báo —
+  không thể có chuyện bài hiện tên ai đó mà người ấy không được báo tin.
+- Bài viết trích handle bằng `Renderer.MentionsIn` (đi theo cây cú pháp goldmark)
+  chứ không phải regex trên văn bản thô, nên dán một đoạn log/cấu hình có
+  "@ai-đó" trong khối code **không** còn báo tin cho người ta. `markdown.Mentions`
+  dạng regex vẫn giữ nguyên cho bình luận — bình luận không render chip mention.
 - **Người theo dõi Topic** (Subscription): danh sách `profile_uuid` lấy từ bảng
   `subscriptions` cục bộ; thông tin liên hệ để gửi thì **lunoti** tự cache (đẩy
   event chỉ cần `profile_uuid`).

@@ -1,3 +1,28 @@
+## 2026-09-15
+
+### Diễn đàn — mention hiện họ tên
+- `@code` trong bài viết nay render thành chip chỉ hiện **họ tên**, không kèm dấu
+  `@` và không kèm code; soạn thảo giữ nguyên cách gõ `@` + code và danh sách gợi ý.
+- Handle không phân giải được (người ngoài Space, code sai) giữ nguyên `@code` —
+  bỏ `@` ở đó sẽ biến chữ tác giả gõ thành một từ trơ không ai hiểu.
+- Bộ parse mention là extension goldmark (`internal/markdown/mention.go`) chứ không
+  phải thay chuỗi trên HTML đã render, nên `@` trong code span, code block, email và
+  URL không bị đụng tới; handle gốc nằm ở `data-mention` để truy ngược.
+- `Service.resolveMention` dùng chung cho cả `post_mentions` lẫn nhãn hiển thị, nên
+  người được hiện tên đúng là người nhận thông báo.
+- **Sửa lỗi phát hiện kèm**: cổng chặn "chip khớp danh sách trích" lộ ra việc dán một
+  khối code có `@ai-đó` vẫn báo tin cho người ấy dù bài không hề hiện tên. Bài viết
+  chuyển sang `Renderer.MentionsIn` (theo cây cú pháp) nên chỉ còn nhắc tên đúng
+  người hiện thành chip; `markdown.Mentions` dạng regex giữ nguyên cho bình luận.
+- Áp cho tạo topic, trả lời, sửa bài, xem trước và mô tả Board. Thêm style
+  `.prose-forum .mention` (sáng/tối) dùng chung cho mọi nơi render `body_html`.
+- Đạt: 6 unit test markdown (có cổng chặn "chip khớp danh sách trích"), 1 unit test
+  ForumEditor, nhóm nghiệm thu `mention_shows_display_name_in_preview_and_post` trên
+  PostgreSQL thật, Go build/vet/test và frontend typecheck/vitest.
+- **Còn nợ**: `body_html` là ảnh chụp lúc ghi — bài **đã tồn tại từ trước** vẫn hiện
+  `@code` cho tới khi được sửa lại; chưa có job backfill render lại. Chưa mở bằng
+  Chrome thật để xem chip ở 375 px.
+
 ## 2026-09-08
 
 ### Thiết kế quyền Board

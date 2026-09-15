@@ -93,7 +93,7 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 	if err != nil {
 		return nil, err
 	}
-	html := s.md.Render(in.BodyMD)
+	html := s.renderBody(ctx, board.SpaceUUID, in.BodyMD)
 
 	topic, post, err := s.repo.CreateTopicWithPost(ctx,
 		domain.Topic{SpaceUUID: board.SpaceUUID, BoardID: boardID, AuthorProfileUUID: profileUUID,
@@ -320,7 +320,7 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 	if err != nil {
 		return nil, err
 	}
-	html := s.md.Render(in.BodyMD)
+	html := s.renderBody(ctx, t.SpaceUUID, in.BodyMD)
 	post, err := s.repo.CreateReply(ctx, domain.Post{
 		TopicID: topicID, SpaceUUID: t.SpaceUUID, AuthorProfileUUID: profileUUID,
 		ReplyToID: in.ReplyToID, BodyMD: in.BodyMD, BodyHTML: html, Status: status,
@@ -400,7 +400,7 @@ func (s *Service) UpdatePost(ctx context.Context, postID, profileUUID, bodyMD st
 	if err := validateEditorAssetReferences(bodyMD, allIDs); err != nil {
 		return nil, err
 	}
-	html := s.md.Render(bodyMD)
+	html := s.renderBody(ctx, p.SpaceUUID, bodyMD)
 	out, err := s.repo.UpdatePost(ctx, postID, bodyMD, html)
 	if err == nil {
 		s.attachAndMention(ctx, out, p.SpaceUUID, attachmentIDs, bodyMD)
@@ -521,20 +521,55 @@ func (s *Service) ListTags(ctx context.Context, spaceUUID, profileUUID, query st
 
 func (s *Service) attachAndMention(ctx context.Context, post *domain.Post, spaceUUID string, attachmentIDs []string, bodyMD string) {
 	// Attachments were already claimed atomically in the post transaction.
-	handles := markdown.Mentions(bodyMD)
+	// MentionsIn chứ không phải Mentions: chỉ nhắc tên ai thật sự hiện thành
+	// chip trong bài, để người được báo tin đúng là người đọc thấy tên.
+	handles := s.md.MentionsIn(bodyMD)
 	uuids := []string{}
 	for _, h := range handles {
-		prof, err := s.ident.ProfileByCode(ctx, h)
-		if err != nil || prof == nil {
+		prof := s.resolveMention(ctx, spaceUUID, h)
+		if prof == nil {
 			continue
-		}
-		if !s.ident.IsMember(ctx, spaceUUID, prof.ProfileUUID) {
-			continue // chỉ mention thành viên Space (docs/05 §5.5)
 		}
 		uuids = append(uuids, prof.ProfileUUID)
 	}
 	if len(uuids) > 0 {
 		s.repo.AddMentions(ctx, post.ID, uuids)
+	}
+}
+
+// resolveMention tra @handle → Profile: phải tồn tại và là thành viên Space
+// (docs/05 §5.5). Cả chip hiển thị lẫn bảng post_mentions đều đi qua đây, nên
+// người mà bài viết hiện tên đúng là người nhận được thông báo.
+func (s *Service) resolveMention(ctx context.Context, spaceUUID, handle string) *domain.CachedProfile {
+	prof, err := s.ident.ProfileByCode(ctx, handle)
+	if err != nil || prof == nil {
+		return nil
+	}
+	if !s.ident.IsMember(ctx, spaceUUID, prof.ProfileUUID) {
+		return nil
+	}
+	return prof
+}
+
+// renderBody dựng HTML bài viết và đổi "@code" thành họ tên. Handle gốc vẫn ở
+// data-mention nên chip vẫn truy ngược được về người được nhắc.
+func (s *Service) renderBody(ctx context.Context, spaceUUID, bodyMD string) string {
+	return s.md.RenderWithMentions(bodyMD, s.mentionLabels(ctx, spaceUUID))
+}
+
+// mentionLabels trả bộ phân giải nhãn cho MỘT lần render; map nội bộ để mỗi
+// handle chỉ tra cache Profile/thành viên đúng một lần dù xuất hiện nhiều lần.
+func (s *Service) mentionLabels(ctx context.Context, spaceUUID string) markdown.MentionResolver {
+	seen := map[string]string{}
+	return func(handle string) (string, bool) {
+		label, done := seen[handle]
+		if !done {
+			if prof := s.resolveMention(ctx, spaceUUID, handle); prof != nil {
+				label = strings.TrimSpace(prof.Name)
+			}
+			seen[handle] = label
+		}
+		return label, label != ""
 	}
 }
 

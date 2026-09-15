@@ -267,6 +267,90 @@ func TestForumAcceptance(t *testing.T) {
 		expect(call("POST", "/api/v1/topics/"+topic.ID+"/unlock", moderator, nil), 204)
 		expect(call("POST", "/api/v1/spaces/"+space+"/preview", member, map[string]string{"bodyMd": "**Safe** <script>alert(1)</script>"}), 200)
 	})
+	t.Run("mention_shows_display_name_in_preview_and_post", func(t *testing.T) {
+		// tester2 (outsider) CHƯA phải thành viên Space ở thời điểm này — đây là
+		// nửa kia của phép thử, nếu thiếu thì test luôn xanh kể cả khi code bỏ
+		// qua hẳn việc kiểm tra thành viên.
+		var stillOutside bool
+		pool.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM space_member_cache WHERE space_uuid=$1 AND profile_uuid=$2)`, space, outsider).Scan(&stillOutside)
+		if !stillOutside {
+			t.Fatal("tiền đề hỏng: tester2 đã là thành viên, không kiểm được nhánh không phân giải")
+		}
+		// Khối code có @tester3: hiện ra là chữ thường, nên cũng KHÔNG được báo tin.
+		const body = "Nhờ @tester1 xem giúp, @tester2 thì không, mail ai@example.com giữ nguyên, `@tester1` là code\n\n```\n@tester3\n```"
+		w := call("POST", "/api/v1/spaces/"+space+"/preview", member, map[string]string{"bodyMd": body})
+		expect(w, 200)
+		var pv struct {
+			HTML string `json:"html"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &pv)
+		if pv.HTML == "" {
+			t.Fatalf("preview rỗng: %s", w.Body.String())
+		}
+		post := reply(topic.ID, owner, body, nil)
+		read := call("GET", "/api/v1/topics/"+topic.ID+"/posts", member, nil)
+		expect(read, 200)
+
+		for name, html := range map[string]string{"preview": pv.HTML, "post": post.BodyHTML} {
+			// Thành viên: CHỈ họ tên, không còn dấu @ đứng trước.
+			if !strings.Contains(html, `data-mention="tester1">Tester 1</span>`) {
+				t.Errorf("%s: không hiện họ tên trần: %s", name, html)
+			}
+			if strings.Contains(html, "@Tester 1") {
+				t.Errorf("%s: vẫn còn ký tự @ trước họ tên: %s", name, html)
+			}
+			if strings.Contains(html, `data-mention="tester1">@tester1<`) {
+				t.Errorf("%s: vẫn hiện code thay vì họ tên: %s", name, html)
+			}
+			// Người ngoài Space: giữ nguyên "@code" y như tác giả gõ.
+			if !strings.Contains(html, `data-mention="tester2">@tester2</span>`) || strings.Contains(html, "Tester 2") {
+				t.Errorf("%s: người ngoài Space phải giữ nguyên @code: %s", name, html)
+			}
+			if !strings.Contains(html, "ai@example.com") || strings.Contains(html, `data-mention="example.com"`) {
+				t.Errorf("%s: email bị biến thành mention: %s", name, html)
+			}
+			if !strings.Contains(html, "<code>@tester1</code>") {
+				t.Errorf("%s: mention trong code span bị thay: %s", name, html)
+			}
+			if !strings.Contains(html, "@tester3") || strings.Contains(html, `data-mention="tester3"`) {
+				t.Errorf("%s: mention trong code block bị dựng thành chip: %s", name, html)
+			}
+		}
+		// Đọc lại qua API: phải soi ĐÚNG bodyHtml của bài vừa tạo. Tìm "Tester 1"
+		// trong cả response là tự lừa mình — tên ấy có sẵn ở mọi trường author.
+		var list struct {
+			Data []domain.Post `json:"data"`
+		}
+		json.Unmarshal(read.Body.Bytes(), &list)
+		found := false
+		for _, item := range list.Data {
+			if item.ID != post.ID {
+				continue
+			}
+			found = true
+			if !strings.Contains(item.BodyHTML, `data-mention="tester1">Tester 1</span>`) {
+				t.Errorf("đọc lại không có họ tên trần: %s", item.BodyHTML)
+			}
+		}
+		if !found {
+			t.Fatalf("không thấy bài %s khi đọc lại danh sách", post.ID)
+		}
+		// Chip hiển thị và bảng post_mentions phải trỏ cùng một người.
+		var mentioned []string
+		rows, e := pool.Query(ctx, `SELECT profile_uuid FROM post_mentions WHERE post_id=$1`, post.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var u string
+			rows.Scan(&u)
+			mentioned = append(mentioned, u)
+		}
+		if len(mentioned) != 1 || mentioned[0] != member {
+			t.Fatalf("post_mentions=%v, phải đúng một mình tester1 (%s) — tester3 nằm trong khối code nên không được báo tin", mentioned, member)
+		}
+	})
 	t.Run("four_moderation_modes_and_reports", func(t *testing.T) {
 		for _, mode := range []string{"none", "post", "pre", "first_post"} {
 			exec(`UPDATE space_forums SET moderation_mode=$2::moderation_mode WHERE space_uuid=$1`, space, mode)

@@ -11,12 +11,13 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
 )
 
 // mentionRe khớp @code hoặc @uuid (chữ, số, _, ., -). Bỏ qua email vì cần ký tự
 // trước @ là khoảng trắng/đầu chuỗi.
-var mentionRe = regexp.MustCompile(`(^|[\s(])@([A-Za-z0-9][A-Za-z0-9_.\-]{1,63})`)
+var mentionRe = regexp.MustCompile(`(^|[\s(])@(` + handlePattern + `)`)
 
 type Renderer struct {
 	richMD      goldmark.Markdown
@@ -27,11 +28,12 @@ type Renderer struct {
 
 func New() *Renderer {
 	richMD := goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithExtensions(extension.GFM, mentionExtension{}),
 		goldmark.WithRendererOptions(gmhtml.WithHardWraps()),
 	)
 	rich := bluemonday.UGCPolicy()
 	rich.AllowAttrs("class").Globally()
+	rich.AllowAttrs("data-mention").Matching(regexp.MustCompile(`^` + handlePattern + `$`)).OnElements("span")
 	rich.RequireNoFollowOnLinks(true)
 	rich.AddTargetBlankToFullyQualifiedLinks(true)
 	basicMD := goldmark.New(
@@ -47,9 +49,24 @@ func New() *Renderer {
 	return &Renderer{richMD: richMD, basicMD: basicMD, policyRich: rich, policyBasic: basic}
 }
 
-// Render trả HTML đã sanitize từ Markdown.
+// Render trả HTML đã sanitize từ Markdown. @mention hiện nguyên handle.
 func (r *Renderer) Render(src string) string {
 	return r.RenderMode("rich", src)
+}
+
+// RenderWithMentions như Render nhưng đổi "@code" thành họ tên do resolve trả
+// về. Handle gốc vẫn nằm ở data-mention để còn dựng lại được sau này.
+func (r *Renderer) RenderWithMentions(src string, resolve MentionResolver) string {
+	if resolve == nil {
+		return r.Render(src)
+	}
+	pc := parser.NewContext()
+	pc.Set(mentionResolverKey, resolve)
+	var buf bytes.Buffer
+	if err := r.richMD.Convert([]byte(src), &buf, parser.WithContext(pc)); err != nil {
+		return r.policyRich.Sanitize(src)
+	}
+	return r.policyRich.Sanitize(buf.String())
 }
 
 // RenderMode renders comment markdown using the requested, allowlisted level.

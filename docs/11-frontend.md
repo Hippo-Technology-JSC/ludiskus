@@ -69,6 +69,15 @@ có debounce/bộ lọc/phân trang. Settings/Moderation/Space dùng capability 
 queue hiển thị nội dung trước khi duyệt. Đã có 6 unit test và 11 Chrome fixture checks,
 chưa thay thế phiên đăng nhập thật: [biên bản](15-nghiem-thu-dien-dan.md).
 
+## Hiển thị mention 2026-09-15
+
+Soạn thảo vẫn gõ `@code` và chọn từ danh sách gợi ý. Khi **xem trước** hoặc **đọc
+bài**, server trả chip đã mang sẵn họ tên trần (không có dấu `@`) nên FE không phải
+tra thêm gì; style nằm
+ở `.prose-forum .mention` trong `app.css`, dùng chung cho Topic, Moderation, mô tả
+Board và widget diễn đàn của lufami. Đoạn trích kết quả tìm kiếm vẫn lấy từ
+`body_md` nên ở đó vẫn hiện `@code`.
+
 ## Thiết kế bổ sung: cấu hình quyền chuyên mục
 
 Quản lý chuyên mục có mục Phân quyền: chọn ai tạo chủ đề, ai trả lời và moderator
