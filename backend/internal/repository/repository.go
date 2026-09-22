@@ -130,7 +130,28 @@ func (r *Repo) GetCachedProfile(ctx context.Context, uuid string) (*domain.Cache
 func (r *Repo) GetCachedProfileByCode(ctx context.Context, code string) (*domain.CachedProfile, error) {
 	var p domain.CachedProfile
 	err := r.pool.QueryRow(ctx, `SELECT profile_uuid, user_id, code, name, avatar, is_active, created_at, synced_at
-		FROM profile_cache WHERE lower(code) = lower($1) LIMIT 1`, code).
+		FROM profile_cache WHERE lower(code) = lower($1)
+		ORDER BY is_active DESC, synced_at DESC NULLS LAST, created_at DESC, profile_uuid
+		LIMIT 1`, code).
+		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt)
+	if isNotFound(err) {
+		return nil, domain.ErrNotFound
+	}
+	return &p, err
+}
+
+// GetSpaceMemberProfileByCode phân giải handle ngay trong Space đích. Một code
+// cũ có thể còn gắn với profile UUID đã bị thay thế trong cache; join membership
+// trước khi chọn giúp mention không vô tình lấy nhầm hồ sơ ngoài Space.
+func (r *Repo) GetSpaceMemberProfileByCode(ctx context.Context, spaceUUID, code string) (*domain.CachedProfile, error) {
+	var p domain.CachedProfile
+	err := r.pool.QueryRow(ctx, `
+		SELECT p.profile_uuid, p.user_id, p.code, p.name, p.avatar, p.is_active, p.created_at, p.synced_at
+		FROM space_member_cache m
+		JOIN profile_cache p ON p.profile_uuid = m.profile_uuid
+		WHERE m.space_uuid = $1 AND lower(p.code) = lower($2) AND p.is_active
+		ORDER BY p.synced_at DESC NULLS LAST, p.created_at DESC, p.profile_uuid
+		LIMIT 1`, spaceUUID, code).
 		Scan(&p.ProfileUUID, &p.UserID, &p.Code, &p.Name, &p.Avatar, &p.IsActive, &p.CreatedAt, &p.SyncedAt)
 	if isNotFound(err) {
 		return nil, domain.ErrNotFound

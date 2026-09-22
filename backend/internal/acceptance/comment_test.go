@@ -341,6 +341,21 @@ func TestCommentAcceptance(t *testing.T) {
 		if len(got) != 1 || got[0].ProfileUUID != spaceOnly {
 			t.Fatalf("nhánh space không lấy theo thành viên Space: %+v", got)
 		}
+
+		// Một UUID cũ dùng lại cùng code nhưng không thuộc Space không được che
+		// khuất profile hiện tại. Đây là dữ liệu từng làm @ldmm hiện chip nhưng
+		// không tạo comment_mentions trong báo cáo ngày.
+		const staleProfile = "20000000-0000-4000-8000-0000000000bb"
+		exec(`INSERT INTO profile_cache(profile_uuid,code,name,is_active,created_at,synced_at)
+			VALUES($1,'spaceonly','Hồ sơ cũ',true,now(),now()+interval '1 hour')`, staleProfile)
+		comment, _, e := svcSpace.CreateComment(ctx, spaceTarget.Ref(), owner, "space-duplicate-code", service.CreateCommentInput{BodyMD: "Nhờ @spaceonly xem"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		mentions, e := repo.CommentMentions(ctx, comment.ID)
+		if e != nil || len(mentions) != 1 || mentions[0] != spaceOnly {
+			t.Fatalf("mention chọn sai profile khi trùng code: mentions=%v err=%v", mentions, e)
+		}
 		// member là thành viên fixture nhưng KHÔNG thuộc Space này → không được gợi ý.
 		out, e := svcSpace.MentionSuggestions(ctx, spaceTarget.Ref(), owner, "Member")
 		if e != nil {

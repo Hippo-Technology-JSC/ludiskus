@@ -297,17 +297,30 @@ func (s *Service) resolveCommentMentions(ctx context.Context, t *domain.CommentT
 // Cả nhãn hiển thị lẫn bảng comment_mentions đều đi qua đây, nên người mà bình
 // luận hiện tên đúng là người nhận được thông báo.
 func (s *Service) commentMentionTarget(ctx context.Context, t *domain.CommentTarget, p domain.CommentPolicy, handle string) *domain.CachedProfile {
+	if p.Mentions.Scope == "space" && t.SpaceUUID != nil {
+		// Làm ấm/đồng bộ membership trước, rồi phân giải code ngay trong Space.
+		// Không tra code toàn cục trước: cache có thể còn profile UUID cũ dùng lại
+		// cùng code và hồ sơ đó không thuộc Space hiện tại.
+		if _, err := s.ident.Members(ctx, *t.SpaceUUID); err != nil {
+			return nil
+		}
+		profile, err := s.repo.GetSpaceMemberProfileByCode(ctx, *t.SpaceUUID, handle)
+		if err == nil {
+			return profile
+		}
+		if len(handle) >= 32 {
+			profile, err = s.ident.Profile(ctx, handle)
+			if err == nil && profile != nil && s.ident.IsMember(ctx, *t.SpaceUUID, profile.ProfileUUID) {
+				return profile
+			}
+		}
+		return nil
+	}
 	profile, err := s.ident.ProfileByCode(ctx, handle)
 	if err != nil && len(handle) >= 32 {
 		profile, err = s.ident.Profile(ctx, handle)
 	}
 	if err != nil || profile == nil {
-		return nil
-	}
-	if p.Mentions.Scope == "space" && t.SpaceUUID != nil {
-		if s.ident.IsMember(ctx, *t.SpaceUUID, profile.ProfileUUID) {
-			return profile
-		}
 		return nil
 	}
 	if _, e := s.repo.GetCommentParticipant(ctx, t.ID, profile.ProfileUUID); e == nil {

@@ -144,7 +144,17 @@ func (s *Service) FlushCommentNotify(ctx context.Context) (int, error) {
 				actorName = profile.Name
 			}
 		}
-		data, _ := json.Marshal(map[string]any{"actor": actorName, "count": len(g.comments), "others": max(0, len(g.comments)-1), "resourceTitle": t.Title, "excerpt": excerptOf(latest.BodyMD), "url": commentURL(t, latest.ID)})
+		data, _ := json.Marshal(map[string]any{
+			"actor":         actorName,
+			"count":         len(g.comments),
+			"others":        max(0, len(g.comments)-1),
+			"resourceTitle": t.Title,
+			"excerpt":       excerptOf(latest.BodyMD),
+			"url":           commentURL(t, latest.ID),
+			"serviceCode":   t.ServiceCode,
+			"resourceType":  t.ResourceType,
+			"resourceId":    t.ResourceID,
+		})
 		sort.Slice(g.rows, func(i, j int) bool { return g.rows[i] < g.rows[j] })
 		key := fmt.Sprintf("cmt:batch:%x", sha256.Sum256([]byte(fmt.Sprint(g.rows))))
 		payload, e := json.Marshal(notify.Event{EventType: g.event, IdempotencyKey: &key, Data: data, Recipients: []notify.Recipient{{ProfileUUID: g.recipient}}})
