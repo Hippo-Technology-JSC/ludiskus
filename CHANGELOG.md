@@ -1,3 +1,28 @@
+## 2026-09-23
+
+### LuComment — đính kèm của bình luận không bao giờ hiện ra
+- `enrichComments` nạp đính kèm từ DB nhưng **chưa bao giờ ký URL tải xuống**. `Attachment.URL`
+  là trường tính lúc chạy, không nằm trong `attCols`, lại khai `json:"url,omitempty"` — nên khi
+  rỗng thì khoá `url` **biến mất khỏi JSON**. Frontend vẽ đính kèm sau `<Show when={attachment.url}>`
+  (`CommentItem.tsx`), vậy là không vẽ gì: không lỗi, không toast, không một dòng console.
+  Payload vẫn đủ `id`/`fileName`/`contentType`/`sizeBytes`/`kind`, chỉ thiếu đúng thứ dùng làm
+  điều kiện hiển thị — nên nhìn từ DevTools cũng dễ tưởng backend đã trả đủ.
+- Nhánh diễn đàn không dính vì `enrichPosts` có sẵn bước ký. Lỗi chỉ ở nhánh bình luận, và vì mọi
+  đường đọc (list, replies, create, update, get, search, mine — 10 lời gọi) đều đi qua
+  `enrichComments`, nó hỏng đồng loạt ở mọi nơi.
+- Thêm `signCommentAttachments` và gọi từ `enrichComments`. **Luôn dùng `PresignGet`**, không phân
+  nhánh public/presign như diễn đàn: `CommentTarget.SpaceUUID` là `*string` và có thể `nil` (bình
+  luận trên tài nguyên không thuộc space nào), nên "space công khai" không phải lúc nào cũng suy
+  được. `PresignedGetObject` ký cục bộ, không có lượt gọi mạng nào thêm.
+- Bình luận đã xoá **không** được cấp URL. Nhánh `CommentDeleted` vốn đã xoá body và tác giả;
+  nếu ký cả những đính kèm này thì một bình luận đã xoá bỗng tải xuống được — sửa lỗi hiển thị
+  mà mở ra lỗ rò. (Tên tệp của bình luận đã xoá vẫn lộ như trước, chưa đụng tới.)
+- Đạt: nhóm nghiệm thu mới `attachment_url_is_signed_real_minio` trên PostgreSQL + MinIO thật —
+  presign, PUT thật, tạo bình luận, rồi khẳng định trên **JSON đã marshal** (`"url":"http`) chứ
+  không chỉ trên struct, vì chính `omitempty` mới là chỗ giấu lỗi; kiểm cả `CreateComment` lẫn
+  `ListComments`, cộng một khẳng định ngược cho bình luận đã xoá. Đối chứng ngược: gỡ bản vá thì
+  bài kiểm đỏ đúng dòng "đính kèm không được ký URL". Toàn bộ `go test ./...` xanh với DB thật.
+
 ## 2026-09-15
 
 ### Hiệu năng gợi ý @mention cho Space vài nghìn thành viên

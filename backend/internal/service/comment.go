@@ -535,12 +535,27 @@ func (s *Service) enrichComments(ctx context.Context, items []*domain.Comment, v
 		if c.ReplyToProfileUUID != nil {
 			c.ReplyToProfile = profiles[*c.ReplyToProfileUUID]
 		}
-		c.Attachments = attachments[c.ID]
+		c.Attachments = s.signCommentAttachments(ctx, attachments[c.ID], c.Deleted)
 		c.Mentions, _ = s.repo.CommentMentions(ctx, c.ID)
 		c.CanEdit = c.AuthorProfileUUID != nil && *c.AuthorProfileUUID == viewer
 		c.CanDelete = c.CanEdit || moderator
 		c.CanModerate = moderator
 	}
+}
+
+// signCommentAttachments cấp URL tải xuống cho đính kèm của bình luận. URL là
+// trường tính lúc chạy (`json:"url,omitempty"`), không đọc từ DB: thiếu nó thì
+// khoá "url" biến mất khỏi JSON và frontend lặng lẽ không vẽ đính kèm nào.
+// Luôn dùng PresignGet vì bình luận có thể nằm ngoài mọi space (SpaceUUID nil),
+// nên không suy ra được "space công khai" như nhánh diễn đàn.
+func (s *Service) signCommentAttachments(ctx context.Context, atts []domain.Attachment, deleted bool) []domain.Attachment {
+	if s.store == nil || deleted {
+		return atts
+	}
+	for i := range atts {
+		atts[i].URL, _ = s.store.PresignGet(ctx, atts[i].ObjectKey, atts[i].FileName)
+	}
+	return atts
 }
 
 func (s *Service) GetComment(ctx context.Context, id, profileUUID string) (*domain.Comment, *domain.CommentTarget, error) {

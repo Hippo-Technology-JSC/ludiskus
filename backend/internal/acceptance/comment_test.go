@@ -29,6 +29,7 @@ import (
 	"ludiskus/internal/repository"
 	"ludiskus/internal/resolver"
 	"ludiskus/internal/service"
+	"ludiskus/internal/storage"
 )
 
 // Uses only a private schema in a *_test DB, fixture providers and optional
@@ -560,6 +561,107 @@ func TestCommentAcceptance(t *testing.T) {
 		}
 		sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 		t.Logf("10k roots: HTTP handler + real PostgreSQL page p95=%s (not BFF/browser load)", latencies[18])
+	})
+	t.Run("attachment_url_is_signed_real_minio", func(t *testing.T) {
+		// Bảo vệ chống hồi quy: URL là trường tính lúc chạy với `omitempty`, nên khi
+		// quên ký thì khoá "url" biến mất khỏi JSON và frontend lặng lẽ không vẽ gì —
+		// không lỗi, không log. Chỉ khẳng định trên JSON thật mới bắt được.
+		if os.Getenv("LUDISKUS_TEST_MINIO") != "1" {
+			t.Skip("set LUDISKUS_TEST_MINIO=1 for real MinIO")
+		}
+		live, e := config.Load()
+		if e != nil {
+			t.Fatal(e)
+		}
+		attCfg := *cfg
+		attCfg.S3Endpoint = live.S3Endpoint
+		attCfg.S3PublicEndpoint = live.S3Endpoint
+		attCfg.S3AccessKey = live.S3AccessKey
+		attCfg.S3SecretKey = live.S3SecretKey
+		attCfg.S3Bucket = "ludiskus-comment-acceptance"
+		attCfg.PresignTTL = time.Minute
+		attCfg.MaxFileBytes = 1024 * 1024
+		attCfg.MaxAttachments = 8
+		attCfg.AllowedMIME = []string{"image/png"}
+		store, e := storage.New(&attCfg)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = store.EnsureBucket(ctx); e != nil {
+			t.Fatal(e)
+		}
+		attPolicy := policy
+		attPolicy.Attachments.Enabled = true
+		attRaw, _ := json.Marshal(attPolicy)
+		if e = repo.UpsertCommentPolicy(ctx, "fixture", "*", attRaw, nil); e != nil {
+			t.Fatal(e)
+		}
+		defer repo.UpsertCommentPolicy(ctx, "fixture", "*", raw, nil)
+
+		attSvc := service.New(repo, ident, store, nil, markdown.New(), &attCfg, rdb)
+		ref := target.Ref()
+		pre, e := attSvc.PresignUpload(ctx, member, service.PresignInput{ResourceRef: &ref, FileName: "anh.png", ContentType: "image/png", SizeBytes: 5})
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer store.Remove(ctx, pre.ObjectKey)
+		req, _ := http.NewRequest("PUT", pre.UploadURL, strings.NewReader("hello"))
+		req.Header.Set("Content-Type", "image/png")
+		res, e := http.DefaultClient.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		res.Body.Close()
+		if res.StatusCode != 200 {
+			t.Fatalf("upload %d", res.StatusCode)
+		}
+		created, _, e := attSvc.CreateComment(ctx, ref, member, "with-attachment", service.CreateCommentInput{BodyMD: "Kèm một ảnh", AttachmentIDs: []string{pre.AttachmentID}})
+		if e != nil {
+			t.Fatal(e)
+		}
+
+		assertSigned := func(where string, atts []domain.Attachment) {
+			t.Helper()
+			if len(atts) != 1 {
+				t.Fatalf("%s: có %d đính kèm, muốn 1", where, len(atts))
+			}
+			if atts[0].URL == "" {
+				t.Fatalf("%s: đính kèm không được ký URL", where)
+			}
+			encoded, _ := json.Marshal(atts[0])
+			if !strings.Contains(string(encoded), `"url":"http`) {
+				t.Fatalf("%s: JSON thiếu khoá url: %s", where, encoded)
+			}
+		}
+		assertSigned("CreateComment", created.Attachments)
+
+		page, e := attSvc.ListComments(ctx, ref, member, "newest", "", 5, 3)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var listed *domain.Comment
+		for i := range page.Data {
+			if page.Data[i].ID == created.ID {
+				listed = &page.Data[i]
+			}
+		}
+		if listed == nil {
+			t.Fatal("bình luận vừa tạo không có trong danh sách")
+		}
+		assertSigned("ListComments", listed.Attachments)
+
+		if _, e = attSvc.DeleteComment(ctx, created.ID, member); e != nil {
+			t.Fatal(e)
+		}
+		gone, _, e := attSvc.GetComment(ctx, created.ID, member)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, a := range gone.Attachments {
+			if a.URL != "" {
+				t.Fatal("bình luận đã xoá không được cấp URL tải xuống")
+			}
+		}
 	})
 	t.Run("redis_unavailable_fail_open", func(t *testing.T) {
 		if rdb == nil {
