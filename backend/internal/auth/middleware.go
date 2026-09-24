@@ -31,6 +31,14 @@ func UserID(ctx context.Context) string      { v, _ := ctx.Value(userIDKey).(str
 func BearerToken(ctx context.Context) string { v, _ := ctx.Value(tokenKey).(string); return v }
 func ProfileUUID(ctx context.Context) string { v, _ := ctx.Value(profileKey).(string); return v }
 func IsSuperuser(ctx context.Context) bool   { v, _ := ctx.Value(superuserKey).(bool); return v }
+
+// WithoutSuperuser trả ctx mà ở đó người gọi được đối xử như người thường. Chỉ
+// HẸP quyền, không bao giờ nới: dùng cho đường tìm kiếm chung (LuSpotlight),
+// nơi kết quả hiện lẫn với dữ liệu cá nhân và không có gì báo "bạn thấy cái
+// này nhờ quyền quản trị".
+func WithoutSuperuser(ctx context.Context) context.Context {
+	return context.WithValue(ctx, superuserKey, false)
+}
 func GatewayAudience(ctx context.Context) string {
 	v, _ := ctx.Value(gatewayAudienceKey).(string)
 	return v

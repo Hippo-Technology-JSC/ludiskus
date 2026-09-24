@@ -41,11 +41,7 @@ func (s *Service) Search(ctx context.Context, profileUUID string, in SearchInput
 		}
 		scope = []string{in.SpaceUUID}
 	} else {
-		for _, space := range s.viewableSpaces(ctx, profileUUID) {
-			if _, err := s.requireView(ctx, space, profileUUID); err == nil {
-				scope = append(scope, space)
-			}
-		}
+		scope = s.searchableSpaces(ctx, profileUUID)
 	}
 	if in.Limit <= 0 || in.Limit > 50 {
 		in.Limit = 20
@@ -107,6 +103,42 @@ func (s *Service) Search(ctx context.Context, profileUUID string, in SearchInput
 	}
 	s.enrichTopics(ctx, ptrs)
 	return topics, nil
+}
+
+// searchableSpaces là phạm vi tìm kiếm khi không chỉ định Space: ứng viên từ
+// viewableSpaces, rồi MỖI Space phải qua requireView — đúng cổng mà
+// ListBoards/ListSpaceTopics dùng trước khi trả bất cứ thứ gì của Space đó.
+// Tìm topic (Search) và tìm chuyên mục (SearchBoards) dùng CHUNG hàm này để hai
+// loại không thể lệch phạm vi nhau.
+func (s *Service) searchableSpaces(ctx context.Context, profileUUID string) []string {
+	var scope []string
+	for _, space := range s.viewableSpaces(ctx, profileUUID) {
+		if _, err := s.requireView(ctx, space, profileUUID); err == nil {
+			scope = append(scope, space)
+		}
+	}
+	return scope
+}
+
+// SearchBoards tìm chuyên mục theo tên/mã trong mọi Space người dùng xem được.
+//
+// KHÔNG có luật quyền mới: ListBoards (service.go) chỉ đòi requireView trên
+// Space rồi trả MỌI chuyên mục của Space đó — chuyên mục không có ACL xem riêng
+// (ACL của board chỉ quyết định tạo chủ đề/trả lời/kiểm duyệt). Ở đây là cùng
+// cổng requireView, áp qua searchableSpaces.
+func (s *Service) SearchBoards(ctx context.Context, profileUUID, query string, limit int) ([]domain.Board, error) {
+	query = strings.TrimSpace(query)
+	if len([]rune(query)) < 2 {
+		return []domain.Board{}, nil
+	}
+	scope := s.searchableSpaces(ctx, profileUUID)
+	if len(scope) == 0 {
+		return []domain.Board{}, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	return s.repo.SearchBoards(ctx, query, scope, limit)
 }
 
 // viewableSpaces gộp Space người dùng là thành viên + Space công khai đã bật forum.

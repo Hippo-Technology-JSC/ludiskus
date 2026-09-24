@@ -386,6 +386,39 @@ func (r *Repo) ListBoards(ctx context.Context, spaceUUID string) ([]domain.Board
 	return out, rows.Err()
 }
 
+// SearchBoards tìm chuyên mục theo tên hoặc mã, CHỈ trong `spaceUUIDs` — tập
+// Space mà service đã lọc qua requireView. Repo không tự quyết quyền.
+//
+// Bỏ dấu bằng unaccent hai phía (cùng cách SearchForum khớp tiêu đề topic): gõ
+// "thao luan" ra "Thảo luận". Ký tự đại diện của ILIKE trong từ khoá được
+// escape — gõ "%" không được biến thành "mọi chuyên mục".
+func (r *Repo) SearchBoards(ctx context.Context, query string, spaceUUIDs []string, limit int) ([]domain.Board, error) {
+	if len(spaceUUIDs) == 0 {
+		return []domain.Board{}, nil
+	}
+	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	rows, err := r.pool.Query(ctx, `SELECT `+boardCols+` FROM boards
+		WHERE space_uuid = ANY($1::uuid[])
+		  AND (unaccent(name) ILIKE '%' || unaccent($2) || '%'
+		       OR unaccent(code) ILIKE '%' || unaccent($2) || '%')
+		ORDER BY (unaccent(name) ILIKE unaccent($2) || '%') DESC,
+		         last_activity_at DESC NULLS LAST, name, id
+		LIMIT $3`, spaceUUIDs, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Board{}
+	for rows.Next() {
+		var b domain.Board
+		if err := scanBoard(rows, &b); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) GetBoard(ctx context.Context, id string) (*domain.Board, error) {
 	var b domain.Board
 	err := scanBoard(r.pool.QueryRow(ctx, `SELECT `+boardCols+` FROM boards WHERE id = $1`, id), &b)

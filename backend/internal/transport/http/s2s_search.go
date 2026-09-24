@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"ludiskus/internal/auth"
 	"ludiskus/internal/domain"
 	"ludiskus/internal/service"
 )
@@ -21,6 +22,10 @@ import (
 // Nếu route này nằm dưới requireService thì ludiskus sẽ chỉ biết "có một service
 // gọi tôi" và buộc phải tin một profile_uuid nào đó trong body — tức là bất kỳ
 // ai giữ một token service đều đọc được thảo luận riêng tư của mọi người.
+//
+// Hai loại, CÙNG một phạm vi: `topic` (Service.Search) và `board`
+// (Service.SearchBoards) đều lấy Space từ searchableSpaces — không loại nào có
+// mệnh đề quyền riêng.
 
 type s2sSearchRequest struct {
 	Query string   `json:"query"`
@@ -64,37 +69,111 @@ func (s *Server) s2sSearch(w http.ResponseWriter, r *http.Request) {
 	if in.Limit <= 0 || in.Limit > 20 {
 		in.Limit = 8
 	}
-	if !wantsType(in.Types, "topic") {
-		writeJSON(w, http.StatusOK, s2sSearchResponse{Items: []s2sSearchItem{}})
-		return
+
+	// Superuser tìm như người thường: role() nâng superuser thành owner của
+	// MỌI Space, đúng cho trang quản trị, sai cho ô tìm kiếm chung.
+	ctx := auth.WithoutSuperuser(r.Context())
+	me := s.me(r)
+
+	// Mỗi nguồn xin ĐỦ `limit`: trộn xen kẽ rồi cắt thì nguồn này hụt, nguồn
+	// kia bù được.
+	var topics, boards []s2sSearchItem
+
+	if wantsType(in.Types, "topic") {
+		// s.svc.Search đã lọc theo searchableSpaces của chính người dùng. Không
+		// có nhánh nào ở đây nới rộng phạm vi đó — đây là toàn bộ hợp đồng bảo
+		// mật.
+		list, err := s.svc.Search(ctx, me, service.SearchInput{Query: q, Limit: in.Limit})
+		if err != nil {
+			writeError(w, s.log, err)
+			return
+		}
+		for _, t := range list {
+			topics = append(topics, s2sSearchItem{
+				Type: "topic", ID: t.ID, Title: t.Title,
+				Subtitle:  topicSubtitle(t),
+				Snippet:   t.Highlight, // ts_headline đã bọc <mark>; lufami lọc trắng lại
+				Icon:      "messages",
+				URL:       "/ludiskus/s/" + t.SpaceUUID + "/t/" + t.ID,
+				SpaceUUID: t.SpaceUUID,
+				UpdatedAt: t.UpdatedAt,
+			})
+		}
 	}
 
-	// s.svc.Search đã lọc theo viewableSpaces của chính người dùng. Không có
-	// nhánh nào ở đây nới rộng phạm vi đó — đây là toàn bộ hợp đồng bảo mật.
-	topics, err := s.svc.Search(r.Context(), s.me(r), service.SearchInput{
-		Query: q, Limit: in.Limit,
-	})
-	if err != nil {
-		writeError(w, s.log, err)
-		return
+	if wantsType(in.Types, "board") {
+		// Cùng cổng với ListBoards: requireView trên Space (qua
+		// searchableSpaces, dùng chung với Search ở trên).
+		list, err := s.svc.SearchBoards(ctx, me, q, in.Limit)
+		if err != nil {
+			writeError(w, s.log, err)
+			return
+		}
+		for _, b := range list {
+			it := s2sSearchItem{
+				Type: "board", ID: b.ID, Title: b.Name,
+				Subtitle:  boardSubtitle(b),
+				Icon:      "layers",
+				URL:       "/ludiskus/s/" + b.SpaceUUID + "/b/" + b.ID,
+				SpaceUUID: b.SpaceUUID,
+				UpdatedAt: b.UpdatedAt,
+			}
+			if b.DescriptionMD != nil {
+				it.Snippet = truncateRunes(*b.DescriptionMD, 160)
+			}
+			boards = append(boards, it)
+		}
 	}
 
-	items := make([]s2sSearchItem, 0, len(topics))
-	for i, t := range topics {
-		items = append(items, s2sSearchItem{
-			Type: "topic", ID: t.ID, Title: t.Title,
-			Subtitle:  topicSubtitle(t),
-			Snippet:   t.Highlight, // ts_headline đã bọc <mark>; lufami lọc trắng lại
-			Icon:      "messages",
-			URL:       "/ludiskus/s/" + t.SpaceUUID + "/t/" + t.ID,
-			SpaceUUID: t.SpaceUUID,
-			UpdatedAt: t.UpdatedAt,
-			Rank:      i + 1,
-		})
-	}
+	items := interleaveS2S(in.Limit, topics, boards)
 	writeJSON(w, http.StatusOK, s2sSearchResponse{
 		Items: items, Truncated: len(items) >= in.Limit,
 	})
+}
+
+// interleaveS2S trộn xen kẽ các nguồn (cùng cách với lutriip): nối đuôi thì
+// nguồn hỏi trước luôn chiếm các hạng đầu, và lufami sẽ đọc nhầm thứ tự hỏi
+// thành tín hiệu độ liên quan. Cắt về `limit` rồi MỚI đánh rank 1..n — rank
+// phải khớp đúng danh sách được gửi đi.
+func interleaveS2S(limit int, sources ...[]s2sSearchItem) []s2sSearchItem {
+	total, longest := 0, 0
+	for _, src := range sources {
+		total += len(src)
+		longest = max(longest, len(src))
+	}
+	items := make([]s2sSearchItem, 0, total)
+	for i := 0; i < longest; i++ {
+		for _, src := range sources {
+			if i < len(src) {
+				items = append(items, src[i])
+			}
+		}
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	for i := range items {
+		items[i].Rank = i + 1
+	}
+	return items
+}
+
+func boardSubtitle(b domain.Board) string {
+	if b.TopicCount > 0 {
+		return "Chuyên mục · " + strconv.Itoa(b.TopicCount) + " chủ đề"
+	}
+	return "Chuyên mục"
+}
+
+// truncateRunes cắt theo rune: cắt giữa một ký tự tiếng Việt nhiều byte sinh ra
+// UTF-8 hỏng.
+func truncateRunes(s string, n int) string {
+	s = strings.TrimSpace(strings.Join(strings.Fields(s), " "))
+	rs := []rune(s)
+	if len(rs) <= n {
+		return s
+	}
+	return strings.TrimRight(string(rs[:n]), " ") + "…"
 }
 
 func topicSubtitle(t domain.Topic) string {
