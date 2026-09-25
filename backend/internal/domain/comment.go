@@ -37,9 +37,9 @@ var (
 )
 
 var (
-	serviceCodeRE  = regexp.MustCompile(`^[a-z][a-z0-9_]{1,39}$`)
-	resourceTypeRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,59}$`)
-	resourceIDRE   = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,100}$`)
+	serviceCodeRE   = regexp.MustCompile(`^[a-z][a-z0-9_]{1,39}$`)
+	resourceTypeRE  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,59}$`)
+	resourceIDRE    = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,100}$`)
 	canonicalPathRE = regexp.MustCompile(`^/[A-Za-z0-9/_.:-]*$`)
 )
 
@@ -215,20 +215,21 @@ func DefaultCommentPolicy() CommentPolicy {
 }
 
 type CommentCapabilities struct {
-	CanRead           bool              `json:"canRead"`
-	CanComment        bool              `json:"canComment"`
-	CanReply          bool              `json:"canReply"`
-	CanAttach         bool              `json:"canAttach"`
-	CanMention        bool              `json:"canMention"`
-	CanPin            bool              `json:"canPin"`
-	CanModerate       bool              `json:"canModerate"`
-	MaxDepth          int               `json:"maxDepth"`
-	MaxLength         int               `json:"maxLength"`
-	Markdown          string            `json:"markdown"`
-	EditWindowMinutes int               `json:"editWindowMinutes"`
-	SortOptions       []string          `json:"sortOptions"`
-	Interaction       PolicyInteraction `json:"interaction"`
-	Reasons           map[string]string `json:"reasons,omitempty"`
+	CanRead               bool              `json:"canRead"`
+	CanComment            bool              `json:"canComment"`
+	CanReply              bool              `json:"canReply"`
+	CanAttach             bool              `json:"canAttach"`
+	AttachmentsImagesOnly bool              `json:"attachmentsImagesOnly"`
+	CanMention            bool              `json:"canMention"`
+	CanPin                bool              `json:"canPin"`
+	CanModerate           bool              `json:"canModerate"`
+	MaxDepth              int               `json:"maxDepth"`
+	MaxLength             int               `json:"maxLength"`
+	Markdown              string            `json:"markdown"`
+	EditWindowMinutes     int               `json:"editWindowMinutes"`
+	SortOptions           []string          `json:"sortOptions"`
+	Interaction           PolicyInteraction `json:"interaction"`
+	Reasons               map[string]string `json:"reasons,omitempty"`
 }
 
 type Comment struct {

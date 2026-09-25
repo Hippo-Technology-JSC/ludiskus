@@ -117,7 +117,7 @@ func Load() (*Config, error) {
 	cfg.S3UseSSL = strings.HasPrefix(get("LUDISKUS_S3_ENDPOINT", "http://minio:9000"), "https://")
 	cfg.HipcoreJWKSURL = get("HIPCORE_JWKS_URL", cfg.HipcoreURL+"/api/.well-known/jwks.json")
 	cfg.AllowedMIME = splitCSV(get("LUDISKUS_ALLOWED_MIME",
-		"image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,application/zip"))
+		"image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json,text/csv,application/zip"))
 
 	var err error
 	if cfg.CacheTTL, err = time.ParseDuration(get("LUDISKUS_CACHE_TTL", "1h")); err != nil {

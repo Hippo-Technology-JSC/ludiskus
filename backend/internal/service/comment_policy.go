@@ -188,7 +188,7 @@ func (s *Service) commentCapabilities(ctx context.Context, t *domain.CommentTarg
 		reasons["canAttach"] = "policy_disabled"
 	}
 	return domain.CommentCapabilities{CanRead: p.Enabled, CanComment: canComment, CanReply: canComment && p.MaxDepth > 0,
-		CanAttach: canComment && p.Attachments.Enabled, CanMention: canComment && p.Mentions.Enabled,
+		CanAttach: canComment && p.Attachments.Enabled, AttachmentsImagesOnly: p.Attachments.ImagesOnly, CanMention: canComment && p.Mentions.Enabled,
 		CanPin: moderator && p.Pin.Enabled, CanModerate: moderator, MaxDepth: p.MaxDepth, MaxLength: p.MaxLength,
 		Markdown: p.Markdown, EditWindowMinutes: p.EditWindowMinutes, SortOptions: []string{"newest", "oldest", "top"},
 		Interaction: p.Interaction, Reasons: reasons}

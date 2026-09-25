@@ -132,7 +132,7 @@ kiểm quyền theo Target thay vì theo Space.
 | Luật | Chi tiết |
 |------|----------|
 | Quyền presign | Phải qua `ensureCommentable` cho Target đó (không phải chỉ "là thành viên Space") |
-| Loại tệp | `policy.attachments.images_only=true` ⇒ chỉ `image/*` trong `LUDISKUS_ALLOWED_MIME` |
+| Loại tệp | `policy.attachments.images_only=true` ⇒ chỉ ảnh; nếu `false`, CommentThread cho chọn thêm `.md`, `.txt`, `.pdf`, `.json`, `.csv`, `.zip` với MIME tương ứng trong `LUDISKUS_ALLOWED_MIME` |
 | Kích thước | `LUDISKUS_MAX_FILE_MB` (25MB) — không đổi |
 | Gắn chéo | `attachment.space_uuid` phải khớp `target.space_uuid`; Target không có Space ⇒ `space_uuid = NULL` (cột đã nới) và `object_key = comments/{target_id}/{yyyy}/{mm}/{uuid}/{file}` |
 | Dọn mồ côi | Không đổi: `pending` quá `LUDISKUS_ATTACH_TTL` ⇒ `orphaned` ⇒ xoá object |
