@@ -3,6 +3,12 @@
 ### Fixed
 - Generate attachment storage keys on the server so uploaded filenames never become object paths; encode download filenames safely in Content-Disposition.
 
+## 2026-09-24
+
+### Changed
+- Removed the PostgreSQL host port publication from `docker-compose.yml.example`; PostgreSQL is now reachable only inside the Compose network.
+- Standardized `docker-compose.yml.example` PostgreSQL and Redis containers from the Lushoop example: PostgreSQL binds its host port to localhost; Redis is internal-only, ephemeral, healthchecked, and kept off the shared network.
+
 ## 2026-09-23
 
 ### LuComment — đính kèm của bình luận không bao giờ hiện ra
