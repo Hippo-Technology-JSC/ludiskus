@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -92,10 +93,14 @@ func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in Pres
 	if strings.HasPrefix(strings.ToLower(in.ContentType), "image/") {
 		kind = "image"
 	}
+	objectName, err := randomObjectName()
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
-	objectKey := fmt.Sprintf("spaces/%s/%04d/%02d/%s/%s", in.SpaceUUID, now.Year(), now.Month(), randSuffix(), safeName(in.FileName))
+	objectKey := fmt.Sprintf("spaces/%s/%04d/%02d/%s/%s", in.SpaceUUID, now.Year(), now.Month(), objectName[:2], objectName)
 	if commentTarget != nil {
-		objectKey = fmt.Sprintf("comments/%s/%04d/%02d/%s/%s", commentTarget.ID, now.Year(), now.Month(), randSuffix(), safeName(in.FileName))
+		objectKey = fmt.Sprintf("comments/%s/%04d/%02d/%s/%s", commentTarget.ID, now.Year(), now.Month(), objectName[:2], objectName)
 	}
 
 	att, err := s.repo.CreateAttachment(ctx, domain.Attachment{
@@ -357,8 +362,14 @@ func (s *Service) ImportPersonalFileSelection(ctx context.Context, profileUUID, 
 		if strings.HasPrefix(strings.ToLower(item.MimeType), "image/") {
 			kind = "image"
 		}
+		objectName, err := randomObjectName()
+		if err != nil {
+			cleanup()
+			_ = s.repo.FailPersonalFileImport(ctx, idempotencyKey, err.Error())
+			return nil, err
+		}
 		now := time.Now().UTC()
-		objectKey := fmt.Sprintf("spaces/%s/%04d/%02d/personal-import/%s/%s", spaceUUID, now.Year(), now.Month(), randSuffix(), safeName(item.FileName))
+		objectKey := fmt.Sprintf("spaces/%s/%04d/%02d/personal-import/%s", spaceUUID, now.Year(), now.Month(), objectName)
 		var importedSize int64
 		var importedChecksum string
 		if item.NativeReference != "" {
@@ -420,20 +431,10 @@ func (s *Service) ImportPersonalFileSelection(ctx context.Context, profileUUID, 
 	return created, nil
 }
 
-func safeName(name string) string {
-	name = path.Base(name)
-	name = strings.ReplaceAll(name, " ", "_")
-	var b strings.Builder
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '.', r == '_', r == '-':
-			b.WriteRune(r)
-		}
+func randomObjectName() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
 	}
-	out := b.String()
-	if out == "" || out == "." {
-		return "file"
-	}
-	return out
+	return hex.EncodeToString(value), nil
 }

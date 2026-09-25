@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"image/png"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -95,7 +96,9 @@ func (s *Store) PresignPut(ctx context.Context, objectKey string) (string, error
 func (s *Store) PresignGet(ctx context.Context, objectKey, fileName string) (string, error) {
 	reqParams := url.Values{}
 	if fileName != "" {
-		reqParams.Set("response-content-disposition", "inline; filename=\""+fileName+"\"")
+		if disposition := mime.FormatMediaType("inline", map[string]string{"filename": fileName}); disposition != "" {
+			reqParams.Set("response-content-disposition", disposition)
+		}
 	}
 	u, err := s.public.PresignedGetObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL, reqParams)
 	if err != nil {
