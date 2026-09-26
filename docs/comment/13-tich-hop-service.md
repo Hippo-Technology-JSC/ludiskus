@@ -73,7 +73,7 @@ Seed `db/seeds/comment_policies.json`. Cột rút gọn: **Ai viết** (`who_can
 
 Không có trong bảng ⇒ **không** bật bình luận: `lurp` (dùng `rq_comments` riêng, §13.6),
 `luwalet`, `luxport`, `lunoti`, `lukon`, `luddress`, `luvektor`, `lulama` (không có nội dung do
-người dùng đọc), `luthreed`/`luxworld` (thêm sau khi có trang nội dung công khai).
+người dùng đọc), `luthreed`/`luw` (thêm sau khi có trang nội dung công khai).
 
 ## 13.4 Client Go mẫu (≈120 dòng, copy vào service tích hợp)
 
