@@ -52,6 +52,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			r.Use(authn.UserMiddleware)
 			r.Route("/comments", func(r chi.Router) {
 				r.Post("/summary", s.commentSummaryBatch)
+				r.Post("/author-counts", s.commentAuthorCountsBatch)
 				r.Get("/inbox", s.commentInbox)
 				r.Get("/unread-count", s.commentUnreadCount)
 				r.Get("/mine", s.commentMine)

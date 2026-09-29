@@ -24,6 +24,7 @@ danh sách `{ "data": [...], "nextCursor": "…" }`, đơn lẻ là object trầ
 | GET | `/comments/r/{service}/{type}/{id}/search` | Tìm trong Thread. `?q=&cursor=` |
 | GET | `/comments/r/{service}/{type}/{id}/mention-suggest` | Gợi ý @mention theo `policy.mentions.scope`. `?q=` ≤ 10 kết quả |
 | POST | `/comments/summary` | **Batch** cho feed: `{ "refs": [{service,type,id}, …] }` ≤ `LUDISKUS_COMMENT_BATCH_MAX` (100). Trả `data[]` + `skipped[]` (`{ref, reason}`) |
+| POST | `/comments/author-counts` | **Batch** cùng định dạng `refs` và giới hạn; trả `data[]` gồm `{profileUuid,count}` cho comment và phản hồi đã xuất bản trên các Thread có quyền đọc, cùng `skipped[]` cho ref bị từ chối. |
 | GET | `/comments/inbox` | Thread có phản hồi mới. `?unread=1&cursor=` |
 | GET | `/comments/unread-count` | `{ "count": n }` |
 | GET | `/comments/mine` | Bình luận của tôi xuyên service. `?status=&service=&q=&cursor=` |

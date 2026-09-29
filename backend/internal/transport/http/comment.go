@@ -139,6 +139,21 @@ func (s *Server) commentSummaryBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": data, "skipped": skipped})
 }
+
+func (s *Server) commentAuthorCountsBatch(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Refs []domain.ResourceRef `json:"refs"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	data, skipped, err := s.svc.CommentAuthorCounts(r.Context(), in.Refs, s.me(r))
+	if err != nil {
+		writeError(w, s.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": data, "skipped": skipped})
+}
 func (s *Server) commentMine(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	out, err := s.svc.CommentMine(r.Context(), s.me(r), q.Get("status"), q.Get("service"), q.Get("q"))

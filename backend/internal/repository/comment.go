@@ -18,6 +18,32 @@ const commentCols = `id,target_id,parent_id,root_id,depth,reply_to_profile_uuid,
 	reply_count,anchor,idempotency_key,edited_at,edit_count,deleted_at,deleted_by,
 	delete_reason,score_cache,created_at,updated_at`
 
+func (r *Repo) CommentAuthorCounts(ctx context.Context, targetIDs []string) (map[string]int, error) {
+	counts := map[string]int{}
+	if len(targetIDs) == 0 {
+		return counts, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT author_profile_uuid::text, count(*)
+		FROM comments
+		WHERE target_id = ANY($1::uuid[]) AND status = 'published'
+			AND author_kind = 'profile' AND author_profile_uuid IS NOT NULL
+		GROUP BY author_profile_uuid`, targetIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var profileUUID string
+		var count int
+		if err := rows.Scan(&profileUUID, &count); err != nil {
+			return nil, err
+		}
+		counts[profileUUID] = count
+	}
+	return counts, rows.Err()
+}
+
 func scanComment(row pgx.Row, c *domain.Comment) error {
 	return row.Scan(&c.ID, &c.TargetID, &c.ParentID, &c.RootID, &c.Depth, &c.ReplyToProfileUUID,
 		&c.AuthorKind, &c.AuthorProfileUUID, &c.AuthorSpaceUUID, &c.SourceService, &c.BodyMD, &c.BodyHTML,

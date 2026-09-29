@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -710,6 +711,53 @@ type CommentSummary struct {
 	CommentCount  int                `json:"commentCount"`
 	ReplyCount    int                `json:"replyCount"`
 	LastCommentAt *time.Time         `json:"lastCommentAt,omitempty"`
+}
+
+type CommentAuthorCount struct {
+	ProfileUUID string `json:"profileUuid"`
+	Count       int    `json:"count"`
+}
+
+// Chỉ cộng bình luận ở những resource người gọi được phép đọc.
+func (s *Service) CommentAuthorCounts(ctx context.Context, refs []domain.ResourceRef, profileUUID string) ([]CommentAuthorCount, []map[string]any, error) {
+	if len(refs) > s.cfg.CommentBatchMax {
+		return nil, nil, domain.ErrValidation
+	}
+	skipped := []map[string]any{}
+	targetIDs := []string{}
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		if seen[ref.String()] {
+			continue
+		}
+		seen[ref.String()] = true
+		if err := ref.Validate(); err != nil {
+			skipped = append(skipped, map[string]any{"ref": ref, "reason": errorCode(err)})
+			continue
+		}
+		if _, err := s.repo.GetCommentTarget(ctx, ref); err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				continue
+			}
+			return nil, nil, err
+		}
+		target, _, err := s.ensureCommentReadable(ctx, ref, profileUUID)
+		if err != nil {
+			skipped = append(skipped, map[string]any{"ref": ref, "reason": errorCode(err)})
+			continue
+		}
+		targetIDs = append(targetIDs, target.ID)
+	}
+	counts, err := s.repo.CommentAuthorCounts(ctx, targetIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	data := make([]CommentAuthorCount, 0, len(counts))
+	for profileUUID, count := range counts {
+		data = append(data, CommentAuthorCount{ProfileUUID: profileUUID, Count: count})
+	}
+	slices.SortFunc(data, func(a, b CommentAuthorCount) int { return strings.Compare(a.ProfileUUID, b.ProfileUUID) })
+	return data, skipped, nil
 }
 
 func (s *Service) CommentSummaries(ctx context.Context, refs []domain.ResourceRef, profileUUID string) ([]CommentSummary, []map[string]any, error) {
