@@ -1,19 +1,21 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build cho ludiskus backend (docs/12).
 # api và worker dùng chung một image, chọn binary qua LUDISKUS_ROLE.
 
-FROM golang:1.26-alpine AS base
+FROM golang:1.26-alpine AS toolchain
 WORKDIR /src
 ENV CGO_ENABLED=0
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-
 # Development: chạy bằng go run (root compose mount source + override command)
-FROM base AS development
+FROM toolchain AS development
 CMD ["go", "run", "./cmd/api"]
 
+FROM toolchain AS base
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
 FROM base AS build
-RUN go build -trimpath -ldflags="-s -w" -o /out/ludiskus ./cmd/api && \
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go build -trimpath -ldflags="-s -w" -o /out/ludiskus ./cmd/api && \
     go build -trimpath -ldflags="-s -w" -o /out/ludiskus-worker ./cmd/worker
 
 FROM alpine:3.21 AS production

@@ -1,3 +1,10 @@
+## 2026-09-30
+
+### Changed
+- Chuyển MinIO và MinIO Client sang image MinIO AIStor Free đã pin phiên bản; mount license từ file local không đưa vào Git.
+- Bổ sung MinIO local và khởi tạo bucket vào Docker Compose standalone; đặt endpoint S3 mẫu trỏ tới MinIO local.
+- Tách Docker development khỏi các lớp tải module và sao chép source; dùng BuildKit cache cho module và biên dịch Go, đồng thời lọc file local khỏi build context.
+
 ## 2026-09-25
 
 ### Fixed
