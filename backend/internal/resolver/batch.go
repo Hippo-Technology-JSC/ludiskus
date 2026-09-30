@@ -1,7 +1,6 @@
 package resolver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"ludiskus/internal/domain"
@@ -123,22 +122,11 @@ func (r *Resolver) ResolveBatch(ctx context.Context, refs []domain.ResourceRef) 
 }
 
 func (r *Resolver) callBatch(ctx context.Context, base, path string, refs []domain.ResourceRef) ([]*Result, int, error) {
-	token, e := r.accessToken(ctx)
-	if e != nil {
-		return nil, 0, e
-	}
 	raw, e := json.Marshal(map[string]any{"refs": refs})
 	if e != nil {
 		return nil, 0, e
 	}
-	req, e := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/s2s/"+path+":batch", bytes.NewReader(raw))
-	if e != nil {
-		return nil, 0, e
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	res, e := r.http.Do(req)
+	res, e := r.doProviderRequest(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/s2s/"+path+":batch", raw)
 	if e != nil {
 		return nil, 0, e
 	}

@@ -131,18 +131,8 @@ func (r *Resolver) InvalidateCache(ctx context.Context, ref domain.ResourceRef) 
 }
 
 func (r *Resolver) call(ctx context.Context, base, path string, ref domain.ResourceRef) (*Result, int, error) {
-	token, err := r.accessToken(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
 	u := strings.TrimRight(base, "/") + "/api/v1/s2s/" + path + "/" + url.PathEscape(ref.Type) + "/" + url.PathEscape(ref.ID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-	res, err := r.http.Do(req)
+	res, err := r.doProviderRequest(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -165,6 +155,45 @@ func (r *Resolver) call(ctx context.Context, base, path string, ref domain.Resou
 		return nil, res.StatusCode, err
 	}
 	return &direct, res.StatusCode, nil
+}
+
+// A cached client-credentials token can be revoked before its advertised expiry.
+// Refresh once on 401; a second 401 remains an upstream authentication failure.
+func (r *Resolver) doProviderRequest(ctx context.Context, method, endpoint string, payload []byte) (*http.Response, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		token, err := r.accessToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, err := r.http.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if res.StatusCode != http.StatusUnauthorized || attempt == 1 {
+			return res, nil
+		}
+		res.Body.Close()
+		r.invalidateToken(token)
+	}
+	return nil, ErrUnavailable
+}
+
+func (r *Resolver) invalidateToken(rejected string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.token == rejected {
+		r.token = ""
+		r.tokenExp = time.Time{}
+	}
 }
 
 func validateResult(ref domain.ResourceRef, v *Result) error {
