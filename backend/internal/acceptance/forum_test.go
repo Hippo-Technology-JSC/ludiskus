@@ -98,7 +98,7 @@ func TestForumAcceptance(t *testing.T) {
 	}
 	exec(`INSERT INTO space_forums(space_uuid,moderation_mode) VALUES($1,'none')`, space)
 	exec(`INSERT INTO boards(id,space_uuid,code,name,kind) VALUES($1,$2,'support','Support','support')`, board, space)
-	cfg := &config.Config{CacheTTL: time.Hour, MaxAttachments: 8, MaxFileBytes: 1024 * 1024, OutboxMaxAttempts: 3, PresignTTL: time.Minute, AllowedMIME: []string{"text/plain", "image/png"}}
+	cfg := &config.Config{CacheTTL: time.Hour, MaxAttachments: 8, MaxFileBytes: 1024 * 1024, OutboxMaxAttempts: 3, AllowedMIME: []string{"text/plain", "image/png"}}
 	// Only storage credentials are imported from runtime. All identity/notification
 	// clients below remain isolated fixtures, never the application's recipients.
 	var store *storage.Store
@@ -108,7 +108,6 @@ func TestForumAcceptance(t *testing.T) {
 			t.Fatal(e)
 		}
 		cfg.S3Endpoint = live.S3Endpoint
-		cfg.S3PublicEndpoint = live.S3Endpoint
 		cfg.S3AccessKey = live.S3AccessKey
 		cfg.S3SecretKey = live.S3SecretKey
 		cfg.S3Bucket = "ludiskus-forum-acceptance"
@@ -440,10 +439,10 @@ func TestForumAcceptance(t *testing.T) {
 		if store == nil {
 			t.Skip("set LUDISKUS_TEST_MINIO=1 for real MinIO")
 		}
-		w := call("POST", "/api/v1/attachments/presign", member, map[string]any{"spaceUuid": space, "fileName": "acceptance.txt", "contentType": "text/plain", "sizeBytes": 5})
+		w := call("POST", "/api/v1/attachments/uploads", member, map[string]any{"spaceUuid": space, "fileName": "acceptance.txt", "contentType": "text/plain", "sizeBytes": 5})
 		expect(w, 200)
 		var result struct {
-			Data service.PresignResult `json:"data"`
+			Data service.UploadSlot `json:"data"`
 		}
 		json.Unmarshal(w.Body.Bytes(), &result)
 		defer store.Remove(ctx, result.Data.ObjectKey)
@@ -451,16 +450,31 @@ func TestForumAcceptance(t *testing.T) {
 		expect(call("GET", "/api/v1/attachments/"+result.Data.AttachmentID+"/url", member, nil), 200)
 		body := map[string]any{"bodyMd": "Tệp kiểm thử", "attachmentIds": []string{result.Data.AttachmentID}}
 		expect(call("POST", "/api/v1/topics/"+topic.ID+"/posts", member, body), 422)
-		req, _ := http.NewRequest("PUT", result.Data.UploadURL, strings.NewReader("hello"))
-		req.Header.Set("Content-Type", "text/plain")
-		res, e := http.DefaultClient.Do(req)
-		if e != nil {
-			t.Fatal(e)
+		upload := func(profile, payload string) *httptest.ResponseRecorder {
+			request := httptest.NewRequest("POST", "/api/v1/attachments/"+result.Data.AttachmentID+"/upload", strings.NewReader(payload))
+			request.Header.Set("Content-Type", "text/plain")
+			ts := fmt.Sprint(time.Now().Unix())
+			request.Header.Set("X-Gw-User-Id", "fixture")
+			request.Header.Set("X-Gw-Profile-Uuid", profile)
+			request.Header.Set("X-Gw-Issued-At", ts)
+			mac := hmac.New(sha256.New, []byte(secret))
+			mac.Write([]byte(strings.Join([]string{"v1", "fixture", "", "", profile, ts}, "\n")))
+			request.Header.Set("X-Gw-Signature", hex.EncodeToString(mac.Sum(nil)))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			return response
 		}
-		res.Body.Close()
-		if res.StatusCode != 200 {
-			t.Fatalf("upload %d", res.StatusCode)
+		expect(upload(owner, "hello"), 403)
+		expect(upload(member, "hello!"), 413)
+		expect(upload(member, "hi"), 422)
+		expect(upload(member, "hello"), 200)
+		expect(upload(member, "hello"), 409)
+		content := call("GET", "/api/v1/attachments/"+result.Data.AttachmentID+"/content", member, nil)
+		expect(content, 200)
+		if content.Body.String() != "hello" || content.Header().Get("Location") != "" {
+			t.Fatal("content must return API bytes without a redirect")
 		}
+		expect(call("GET", "/api/v1/attachments/"+result.Data.AttachmentID+"/content", owner, nil), 403)
 		expect(call("POST", "/api/v1/topics/"+topic.ID+"/posts", owner, body), 403)
 		attached := call("POST", "/api/v1/topics/"+topic.ID+"/posts", member, body)
 		expect(attached, 201)

@@ -46,6 +46,7 @@ func (s *Service) PublicCommentList(ctx context.Context, ref domain.ResourceRef,
 		if raw, err := s.redis.Get(ctx, key).Bytes(); err == nil {
 			var cached CommentPage
 			if json.Unmarshal(raw, &cached) == nil {
+				stripPublicComments(cached.Data)
 				return &cached, nil
 			}
 		}
@@ -75,6 +76,7 @@ func (s *Service) PublicCommentReplies(ctx context.Context, id, cursor string, l
 		if raw, cacheErr := s.redis.Get(ctx, key).Bytes(); cacheErr == nil {
 			var cached CommentPage
 			if json.Unmarshal(raw, &cached) == nil {
+				stripPublicComments(cached.Data)
 				return &cached, nil
 			}
 		}
@@ -93,6 +95,9 @@ func (s *Service) PublicCommentReplies(ctx context.Context, id, cursor string, l
 }
 func stripPublicComments(items []domain.Comment) {
 	for i := range items {
+		for j := range items[i].Attachments {
+			items[i].Attachments[j].URL = "/api/public/ludiskus/comments/attachments/" + items[i].Attachments[j].ID + "/content"
+		}
 		items[i].BodyMD = ""
 		items[i].AuthorProfileUUID = nil
 		items[i].Mentions = nil

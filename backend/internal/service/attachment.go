@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"mime"
 	"path"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 	"ludiskus/internal/domain"
 )
 
-type PresignInput struct {
+type UploadInput struct {
 	SpaceUUID      string              `json:"spaceUuid"`
 	ResourceRef    *domain.ResourceRef `json:"resourceRef,omitempty"`
 	FileName       string              `json:"fileName"`
@@ -24,7 +25,7 @@ type PresignInput struct {
 	IdempotencyKey string              `json:"-"`
 }
 
-type PresignResult struct {
+type UploadSlot struct {
 	AttachmentID string `json:"attachmentId"`
 	UploadURL    string `json:"uploadUrl"`
 	ObjectKey    string `json:"objectKey"`
@@ -40,7 +41,7 @@ type EditorAsset struct {
 	Markdown    string `json:"markdown"`
 }
 
-type EditorPresignResult struct {
+type EditorUploadSlot struct {
 	AssetID   string    `json:"assetId"`
 	UploadURL string    `json:"uploadUrl"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -48,11 +49,16 @@ type EditorPresignResult struct {
 
 const editorAssetMaxBytes int64 = 5 * 1024 * 1024
 
-// PresignUpload cấp URL PUT để FE upload trực tiếp lên MinIO (docs/07 §7.1).
-func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in PresignInput) (*PresignResult, error) {
+// BeginUpload creates a permission-checked pending slot for API byte upload.
+func (s *Service) BeginUpload(ctx context.Context, profileUUID string, in UploadInput) (*UploadSlot, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("%w: đính kèm chưa được cấu hình", domain.ErrValidation)
 	}
+	contentType, _, e := mime.ParseMediaType(strings.ToLower(in.ContentType))
+	if e != nil {
+		return nil, domain.ErrValidation
+	}
+	in.ContentType = contentType
 	var commentTarget *domain.CommentTarget
 	var err error
 	if in.ResourceRef != nil {
@@ -68,6 +74,7 @@ func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in Pres
 		if p.Attachments.ImagesOnly && !strings.HasPrefix(strings.ToLower(in.ContentType), "image/") {
 			return nil, fmt.Errorf("%w: chỉ cho phép tệp ảnh", domain.ErrValidation)
 		}
+		in.SpaceUUID = ""
 		if commentTarget.SpaceUUID != nil {
 			in.SpaceUUID = *commentTarget.SpaceUUID
 		}
@@ -111,12 +118,7 @@ func (s *Service) PresignUpload(ctx context.Context, profileUUID string, in Pres
 	if err != nil {
 		return nil, err
 	}
-	putURL, err := s.store.PresignPut(ctx, objectKey)
-	if err != nil {
-		_ = s.repo.DeleteAttachment(ctx, att.ID)
-		return nil, err
-	}
-	return &PresignResult{AttachmentID: att.ID, UploadURL: putURL, ObjectKey: objectKey}, nil
+	return &UploadSlot{AttachmentID: att.ID, UploadURL: attachmentUploadPath(att.ID), ObjectKey: objectKey}, nil
 }
 
 func stringPtr(value string) *string {
@@ -136,7 +138,7 @@ func validEditorAssetPurpose(value string) bool {
 	}
 }
 
-func (s *Service) PresignEditorAsset(ctx context.Context, profileUUID, idempotencyKey string, in PresignInput) (*EditorPresignResult, error) {
+func (s *Service) BeginEditorAsset(ctx context.Context, profileUUID, idempotencyKey string, in UploadInput) (*EditorUploadSlot, error) {
 	if s.store == nil {
 		return nil, fmt.Errorf("%w: đính kèm chưa được cấu hình", domain.ErrValidation)
 	}
@@ -148,32 +150,28 @@ func (s *Service) PresignEditorAsset(ctx context.Context, profileUUID, idempoten
 		return nil, domain.ErrTooLarge
 	}
 	if existing, err := s.repo.GetAttachmentByUploadIdempotencyKey(ctx, idempotencyKey); err == nil {
-		return s.editorPresignForExisting(ctx, profileUUID, in, existing)
+		return s.editorUploadForExisting(ctx, profileUUID, in, existing)
 	} else if err != domain.ErrNotFound {
 		return nil, err
 	}
 	in.IdempotencyKey = idempotencyKey
-	result, err := s.PresignUpload(ctx, profileUUID, in)
+	result, err := s.BeginUpload(ctx, profileUUID, in)
 	if err != nil {
 		// A concurrent request with the same key may have won the unique-index
 		// race after the lookup above. Re-read and return that same slot.
 		if existing, lookupErr := s.repo.GetAttachmentByUploadIdempotencyKey(ctx, idempotencyKey); lookupErr == nil {
-			return s.editorPresignForExisting(ctx, profileUUID, in, existing)
+			return s.editorUploadForExisting(ctx, profileUUID, in, existing)
 		}
 		return nil, err
 	}
-	return &EditorPresignResult{AssetID: result.AttachmentID, UploadURL: result.UploadURL, ExpiresAt: time.Now().UTC().Add(s.cfg.PresignTTL)}, nil
+	return &EditorUploadSlot{AssetID: result.AttachmentID, UploadURL: result.UploadURL, ExpiresAt: time.Now().UTC().Add(s.cfg.AttachTTL)}, nil
 }
 
-func (s *Service) editorPresignForExisting(ctx context.Context, profileUUID string, in PresignInput, existing *domain.Attachment) (*EditorPresignResult, error) {
+func (s *Service) editorUploadForExisting(ctx context.Context, profileUUID string, in UploadInput, existing *domain.Attachment) (*EditorUploadSlot, error) {
 	if existing.UploaderProfileUUID != profileUUID || existing.SpaceUUID != in.SpaceUUID || existing.FileName != in.FileName || existing.ContentType != in.ContentType || existing.SizeBytes != in.SizeBytes || existing.Purpose == nil || *existing.Purpose != in.Purpose {
 		return nil, domain.ErrConflict
 	}
-	u, err := s.store.PresignPut(ctx, existing.ObjectKey)
-	if err != nil {
-		return nil, err
-	}
-	return &EditorPresignResult{AssetID: existing.ID, UploadURL: u, ExpiresAt: time.Now().UTC().Add(s.cfg.PresignTTL)}, nil
+	return &EditorUploadSlot{AssetID: existing.ID, UploadURL: attachmentUploadPath(existing.ID), ExpiresAt: existing.CreatedAt.Add(s.cfg.AttachTTL)}, nil
 }
 
 func (s *Service) CompleteEditorAsset(ctx context.Context, profileUUID, id string) (*EditorAsset, error) {
@@ -234,8 +232,7 @@ func (s *Service) ImportEditorAssets(ctx context.Context, profileUUID, spaceUUID
 	return out, nil
 }
 
-// AttachmentURL trả URL xem/tải (presigned cho Space riêng tư, public cho Space
-// công khai) — docs/07 §7.2.
+// AttachmentURL returns the API content path after checking current visibility.
 func (s *Service) AttachmentURL(ctx context.Context, profileUUID, id string) (string, error) {
 	if s.store == nil {
 		return "", domain.ErrNotFound
@@ -244,10 +241,23 @@ func (s *Service) AttachmentURL(ctx context.Context, profileUUID, id string) (st
 	if err != nil {
 		return "", err
 	}
-	publicForumFile := false
 	if att.CommentID != nil {
-		if _, _, err := s.GetComment(ctx, *att.CommentID, profileUUID); err != nil {
+		if c, _, err := s.GetComment(ctx, *att.CommentID, profileUUID); err != nil {
 			return "", err
+		} else if c.Status == domain.CommentDeleted {
+			return "", domain.ErrNotFound
+		}
+	} else if strings.HasPrefix(att.ObjectKey, "comments/") {
+		if att.UploaderProfileUUID != profileUUID {
+			return "", domain.ErrForbidden
+		}
+		parts := strings.Split(att.ObjectKey, "/")
+		target, e := s.repo.GetCommentTargetByID(ctx, parts[1])
+		if e != nil {
+			return "", e
+		}
+		if _, _, e = s.ensureCommentReadable(ctx, target.Ref(), profileUUID); e != nil {
+			return "", e
 		}
 	} else {
 		if _, err := s.requireView(ctx, att.SpaceUUID, profileUUID); err != nil {
@@ -269,16 +279,12 @@ func (s *Service) AttachmentURL(ctx context.Context, profileUUID, id string) (st
 			if err = s.readableForumTopic(ctx, topic, profileUUID); err != nil {
 				return "", err
 			}
-			publicForumFile = post.Status == domain.StatusPublished && (topic.Status == domain.StatusPublished || topic.Status == domain.StatusLocked)
 			if post.Status == domain.StatusDeleted || (post.Status != domain.StatusPublished && post.AuthorProfileUUID != profileUUID && !canModerate(s.role(ctx, post.SpaceUUID, profileUUID))) {
 				return "", domain.ErrNotFound
 			}
 		}
 	}
-	if publicForumFile && s.spaceIsPublic(ctx, att.SpaceUUID) {
-		return s.store.PublicURL(att.ObjectKey), nil
-	}
-	return s.store.PresignGet(ctx, att.ObjectKey, att.FileName)
+	return attachmentContentPath(att.ID), nil
 }
 
 func (s *Service) AttachmentContentURL(ctx context.Context, profileUUID, id string) (string, error) {
@@ -319,6 +325,13 @@ func (s *Service) ImportPersonalFileSelection(ctx context.Context, profileUUID, 
 	if s.store == nil || s.personalFiles == nil || !s.personalFiles.Enabled() {
 		return nil, fmt.Errorf("%w: Tệp của tôi chưa được cấu hình", domain.ErrValidation)
 	}
+	forum, e := s.requireView(ctx, spaceUUID, profileUUID)
+	if e != nil {
+		return nil, e
+	}
+	if e = s.requirePost(ctx, forum, profileUUID); e != nil {
+		return nil, e
+	}
 	actorUserID := auth.UserID(ctx)
 	if actorUserID == "" || len(idempotencyKey) < 8 {
 		return nil, domain.ErrValidation
@@ -352,6 +365,11 @@ func (s *Service) ImportPersonalFileSelection(ctx context.Context, profileUUID, 
 		}
 	}
 	for _, item := range redeemed.Items {
+		if item.SizeBytes <= 0 || item.SizeBytes > s.cfg.MaxFileBytes || !s.cfg.MIMEAllowed(item.MimeType) {
+			cleanup()
+			_ = s.repo.FailPersonalFileImport(ctx, idempotencyKey, "tệp nguồn vượt giới hạn")
+			return nil, domain.ErrValidation
+		}
 		if validEditorAssetPurpose(purpose) && (item.SizeBytes <= 0 || item.SizeBytes > editorAssetMaxBytes) {
 			cleanup()
 			err := fmt.Errorf("%w: ảnh editor vượt giới hạn 5 MiB", domain.ErrTooLarge)
@@ -437,4 +455,26 @@ func randomObjectName() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(value), nil
+}
+
+func (s *Service) ImportAttachmentAssets(ctx context.Context, profile, space, token, purpose, idempotencyKey string) ([]EditorAsset, error) {
+	if purpose != "topic-attachment" && purpose != "reply-attachment" {
+		return nil, domain.ErrValidation
+	}
+	ids, err := s.ImportPersonalFileSelection(ctx, profile, space, token, purpose, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	assets := make([]EditorAsset, 0, len(ids))
+	for _, id := range ids {
+		att, e := s.repo.GetAttachment(ctx, id)
+		if e != nil {
+			return nil, e
+		}
+		if att.SpaceUUID != space || att.UploaderProfileUUID != profile {
+			return nil, domain.ErrForbidden
+		}
+		assets = append(assets, *editorAssetOf(att))
+	}
+	return assets, nil
 }

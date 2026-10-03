@@ -1,7 +1,4 @@
-// Package storage bọc MinIO/S3: cấp presigned PUT/GET, kiểm tra & xoá object
-// đính kèm. Dùng hai client: internal (container-to-container) để thao tác
-// object, public (host trình duyệt truy cập được) để ký presigned URL. Xem
-// docs/07.
+// Package storage accesses private RustFS/S3 through the internal endpoint.
 package storage
 
 import (
@@ -12,7 +9,6 @@ import (
 	"fmt"
 	"image/png"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,7 +22,6 @@ import (
 
 type Store struct {
 	internal *minio.Client
-	public   *minio.Client
 	cfg      *config.Config
 }
 
@@ -39,9 +34,10 @@ func newClient(endpoint, accessKey, secretKey string) (*minio.Client, error) {
 	host := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
 	secure := strings.HasPrefix(endpoint, "https://")
 	return minio.New(host, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: secure,
-		Region: "us-east-1",
+		Creds:        credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure:       secure,
+		Region:       "us-east-1",
+		BucketLookup: minio.BucketLookupPath,
 	})
 }
 
@@ -55,11 +51,7 @@ func New(cfg *config.Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("minio internal client: %w", err)
 	}
-	public, err := newClient(cfg.S3PublicEndpoint, cfg.S3AccessKey, cfg.S3SecretKey)
-	if err != nil {
-		return nil, fmt.Errorf("minio public client: %w", err)
-	}
-	return &Store{internal: internal, public: public, cfg: cfg}, nil
+	return &Store{internal: internal, cfg: cfg}, nil
 }
 
 // EnsureBucket tạo bucket nếu chưa có (idempotent).
@@ -79,61 +71,6 @@ func (s *Store) Ready(ctx context.Context) error {
 	return err
 }
 
-// PresignPut cấp URL để FE PUT trực tiếp lên MinIO (TTL ngắn).
-func (s *Store) PresignPut(ctx context.Context, objectKey string) (string, error) {
-	u, err := s.public.PresignedPutObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL)
-	if err != nil {
-		uInternal, errInternal := s.internal.PresignedPutObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL)
-		if errInternal != nil {
-			return "", err
-		}
-		return s.replacePublicEndpoint(uInternal.String()), nil
-	}
-	return u.String(), nil
-}
-
-// PresignGet cấp URL tải xuống cho Space riêng tư.
-func (s *Store) PresignGet(ctx context.Context, objectKey, fileName string) (string, error) {
-	reqParams := url.Values{}
-	if fileName != "" {
-		if disposition := mime.FormatMediaType("inline", map[string]string{"filename": fileName}); disposition != "" {
-			reqParams.Set("response-content-disposition", disposition)
-		}
-	}
-	u, err := s.public.PresignedGetObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL, reqParams)
-	if err != nil {
-		uInternal, errInternal := s.internal.PresignedGetObject(ctx, s.cfg.S3Bucket, objectKey, s.cfg.PresignTTL, reqParams)
-		if errInternal != nil {
-			return "", err
-		}
-		return s.replacePublicEndpoint(uInternal.String()), nil
-	}
-	return u.String(), nil
-}
-
-func (s *Store) replacePublicEndpoint(rawURL string) string {
-	if s.cfg.S3PublicEndpoint == "" || s.cfg.S3PublicEndpoint == s.cfg.S3Endpoint {
-		return rawURL
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-	pub, err := url.Parse(s.cfg.S3PublicEndpoint)
-	if err != nil {
-		return rawURL
-	}
-	u.Scheme = pub.Scheme
-	u.Host = pub.Host
-	return u.String()
-}
-
-// PublicURL URL không ký (Space công khai).
-func (s *Store) PublicURL(objectKey string) string {
-	return fmt.Sprintf("%s/%s/%s", s.cfg.S3PublicEndpoint, s.cfg.S3Bucket, objectKey)
-}
-
-// Stat trả kích thước + content-type thực của object (xác nhận đã upload).
 func (s *Store) Stat(ctx context.Context, objectKey string) (size int64, contentType string, err error) {
 	info, err := s.internal.StatObject(ctx, s.cfg.S3Bucket, objectKey, minio.StatObjectOptions{})
 	if err != nil {
@@ -162,7 +99,7 @@ func (s *Store) Inspect(ctx context.Context, objectKey string, maxBytes int64) (
 	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
 		return 0, "", "", "", readErr
 	}
-	detectedType = http.DetectContentType(buffer[:n])
+	detectedType = detectedMIME(buffer[:n], info.ContentType)
 	hash := sha256.New()
 	if _, err = hash.Write(buffer[:n]); err != nil {
 		return 0, "", "", "", err
@@ -227,16 +164,11 @@ func optimizeImageLosslessly(data []byte, contentType string, maxPixels uint64) 
 }
 
 func (s *Store) putPrepared(ctx context.Context, objectKey, contentType string, data []byte) (*ImportResult, error) {
-	info, err := s.internal.PutObject(ctx, s.cfg.S3Bucket, objectKey, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{ContentType: contentType})
+	result, err := s.PutUpload(ctx, objectKey, contentType, int64(len(data)), s.cfg.MaxFileBytes, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	if info.Size != int64(len(data)) {
-		_ = s.Remove(ctx, objectKey)
-		return nil, fmt.Errorf("kích thước object đích không khớp")
-	}
-	sum := sha256.Sum256(data)
-	return &ImportResult{SizeBytes: info.Size, ChecksumSHA256: hex.EncodeToString(sum[:])}, nil
+	return &result, nil
 }
 
 // ImportURLPrepared validates the source bytes, applies supported lossless

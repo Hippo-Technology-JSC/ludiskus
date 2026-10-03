@@ -37,13 +37,12 @@ type Config struct {
 	// chỉ cần biết địa chỉ lufami. Để trống LUFAMI_API_URL = tắt tích hợp điểm.
 	LufamiURL string
 
-	// MinIO / S3 (đính kèm — docs/07).
-	S3Endpoint       string
-	S3PublicEndpoint string
-	S3AccessKey      string
-	S3SecretKey      string
-	S3Bucket         string
-	S3UseSSL         bool
+	// RustFS / S3 (đính kèm — docs/07).
+	S3Endpoint  string
+	S3AccessKey string
+	S3SecretKey string
+	S3Bucket    string
+	S3UseSSL    bool
 
 	// Cache (docs/05)
 	CacheTTL            time.Duration
@@ -53,7 +52,6 @@ type Config struct {
 	// Đính kèm (docs/07)
 	MaxFileBytes   int64
 	MaxAttachments int
-	PresignTTL     time.Duration
 	AttachTTL      time.Duration
 	AllowedMIME    []string
 
@@ -101,8 +99,7 @@ func Load() (*Config, error) {
 		LunotiClientID:        os.Getenv("LUDISKUS_LUNOTI_CLIENT_ID"),
 		LunotiClientSecret:    os.Getenv("LUDISKUS_LUNOTI_CLIENT_SECRET"),
 		LufamiURL:             strings.TrimRight(os.Getenv("LUFAMI_API_URL"), "/"),
-		S3Endpoint:            strings.TrimRight(get("LUDISKUS_S3_ENDPOINT", "http://minio:9000"), "/"),
-		S3PublicEndpoint:      strings.TrimRight(get("LUDISKUS_S3_PUBLIC_ENDPOINT", "http://localhost:9000"), "/"),
+		S3Endpoint:            strings.TrimRight(get("LUDISKUS_S3_ENDPOINT", "http://rustfs-tm:9000"), "/"),
 		S3AccessKey:           get("LUDISKUS_S3_ACCESS_KEY", "minio"),
 		S3SecretKey:           get("LUDISKUS_S3_SECRET_KEY", "minio12345"),
 		S3Bucket:              get("LUDISKUS_S3_BUCKET", "ludiskus-attachments"),
@@ -114,7 +111,7 @@ func Load() (*Config, error) {
 	if cfg.DBDSN == "" {
 		return nil, fmt.Errorf("LUDISKUS_DB_DSN is required")
 	}
-	cfg.S3UseSSL = strings.HasPrefix(get("LUDISKUS_S3_ENDPOINT", "http://minio:9000"), "https://")
+	cfg.S3UseSSL = strings.HasPrefix(get("LUDISKUS_S3_ENDPOINT", "http://rustfs-tm:9000"), "https://")
 	cfg.HipcoreJWKSURL = get("HIPCORE_JWKS_URL", cfg.HipcoreURL+"/api/.well-known/jwks.json")
 	cfg.AllowedMIME = splitCSV(get("LUDISKUS_ALLOWED_MIME",
 		"image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json,text/csv,application/zip"))
@@ -128,9 +125,6 @@ func Load() (*Config, error) {
 	}
 	if cfg.SpaceSyncInterval, err = time.ParseDuration(get("LUDISKUS_SPACE_SYNC_INTERVAL", "6h")); err != nil {
 		return nil, fmt.Errorf("LUDISKUS_SPACE_SYNC_INTERVAL: %w", err)
-	}
-	if cfg.PresignTTL, err = time.ParseDuration(get("LUDISKUS_PRESIGN_TTL", "5m")); err != nil {
-		return nil, fmt.Errorf("LUDISKUS_PRESIGN_TTL: %w", err)
 	}
 	if cfg.AttachTTL, err = time.ParseDuration(get("LUDISKUS_ATTACH_TTL", "24h")); err != nil {
 		return nil, fmt.Errorf("LUDISKUS_ATTACH_TTL: %w", err)

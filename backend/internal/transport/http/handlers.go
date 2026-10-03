@@ -370,12 +370,12 @@ func (s *Server) subscribe(w http.ResponseWriter, r *http.Request) {
 
 // --- attachments ------------------------------------------------------------
 
-func (s *Server) presign(w http.ResponseWriter, r *http.Request) {
-	var in service.PresignInput
+func (s *Server) beginUpload(w http.ResponseWriter, r *http.Request) {
+	var in service.UploadInput
 	if !decode(w, r, &in) {
 		return
 	}
-	res, err := s.svc.PresignUpload(r.Context(), s.me(r), in)
+	res, err := s.svc.BeginUpload(r.Context(), s.me(r), in)
 	if err != nil {
 		writeError(w, s.log, err)
 		return
@@ -392,22 +392,12 @@ func (s *Server) attachmentURL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
-func (s *Server) attachmentContent(w http.ResponseWriter, r *http.Request) {
-	url, err := s.svc.AttachmentContentURL(r.Context(), s.me(r), chi.URLParam(r, "id"))
-	if err != nil {
-		writeError(w, s.log, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
-}
-
-func (s *Server) presignEditorAsset(w http.ResponseWriter, r *http.Request) {
-	var in service.PresignInput
+func (s *Server) beginEditorAsset(w http.ResponseWriter, r *http.Request) {
+	var in service.UploadInput
 	if !decode(w, r, &in) {
 		return
 	}
-	result, err := s.svc.PresignEditorAsset(r.Context(), s.me(r), r.Header.Get("Idempotency-Key"), in)
+	result, err := s.svc.BeginEditorAsset(r.Context(), s.me(r), r.Header.Get("Idempotency-Key"), in)
 	if err != nil {
 		writeError(w, s.log, err)
 		return

@@ -157,11 +157,14 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			r.Put("/subscriptions", s.subscribe)
 
 			// Đính kèm
-			r.Post("/attachments/presign", s.presign)
+			r.Post("/attachments/uploads", s.beginUpload)
+			r.Post("/attachments/import", s.importAttachments)
 			r.Get("/attachments/{id}/url", s.attachmentURL)
 			r.Get("/attachments/{id}/content", s.attachmentContent)
+			r.Head("/attachments/{id}/content", s.attachmentContent)
+			r.Post("/attachments/{id}/upload", s.uploadAttachment)
 			r.Delete("/attachments/{id}", s.deleteAttachment)
-			r.Post("/editor-assets/presign", s.presignEditorAsset)
+			r.Post("/editor-assets/uploads", s.beginEditorAsset)
 			r.Post("/editor-assets/{id}/complete", s.completeEditorAsset)
 			r.Post("/editor-assets/import", s.importEditorAssets)
 
@@ -173,6 +176,8 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 		})
 
 		r.Route("/public/comments", func(r chi.Router) {
+			r.Get("/attachments/{id}/content", s.publicAttachmentContent)
+			r.Head("/attachments/{id}/content", s.publicAttachmentContent)
 			r.Get("/r/{service}/{type}/{id}", s.publicCommentThread)
 			r.Get("/r/{service}/{type}/{id}/items", s.publicCommentList)
 			r.Get("/items/{id}/replies", s.publicCommentReplies)

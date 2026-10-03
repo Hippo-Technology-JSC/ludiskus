@@ -30,16 +30,9 @@ docker compose exec hipcore php artisan passport:client --client
 #   → LUDISKUS_LUNOTI_CLIENT_ID / _SECRET
 ```
 
-## 12.3 Bucket MinIO
+## 12.3 Bucket RustFS dùng chung
 
-Thêm `ludiskus-attachments` vào `minio-init` (cùng dòng `mc mb` với
-`luprojet-attachments`…). Space công khai có thể đặt anonymous download; Space
-riêng tư phục vụ qua presigned (xem [07](07-dinh-kem.md)).
-
-```sh
-mc mb -p local/${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
-# (tuỳ chọn) mc anonymous set download local/${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
-```
+API và worker dùng endpoint nội bộ `http://rustfs-tm:9000` trên network hippo, bucket riêng `ludiskus-attachments`; backend tạo bucket nếu thiếu. Cấu hình bằng các key `LUDISKUS_S3_*` hiện có. Bucket giữ private và trình duyệt upload/get qua API ([07](07-dinh-kem.md)). Compose mẫu không dựng MinIO/RustFS riêng.
 
 ## 12.4 Bổ sung `docker-compose.yml`
 
@@ -66,19 +59,16 @@ Hai service dùng chung image `ludiskus:dev`, vai trò qua `LUDISKUS_ROLE`:
       - LUNOTI_API_URL=http://lunoti-api:8080
       - LUDISKUS_LUNOTI_CLIENT_ID=${LUDISKUS_LUNOTI_CLIENT_ID}
       - LUDISKUS_LUNOTI_CLIENT_SECRET=${LUDISKUS_LUNOTI_CLIENT_SECRET}
-      - LUDISKUS_S3_ENDPOINT=http://minio:9000
-      - LUDISKUS_S3_PUBLIC_ENDPOINT=${LUDISKUS_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
-      - LUDISKUS_S3_ACCESS_KEY=${MINIO_ROOT_USER:-minio}
-      - LUDISKUS_S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minio12345}
+      - LUDISKUS_S3_ENDPOINT=http://rustfs-tm:9000
+      - LUDISKUS_S3_ACCESS_KEY=${LUDISKUS_S3_ACCESS_KEY:-minio}
+      - LUDISKUS_S3_SECRET_KEY=${LUDISKUS_S3_SECRET_KEY:-minio12345}
       - LUDISKUS_S3_BUCKET=${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
       - LUDISKUS_MAX_FILE_MB=${LUDISKUS_MAX_FILE_MB:-25}
-      - LUDISKUS_PRESIGN_TTL=${LUDISKUS_PRESIGN_TTL:-5m}
     ports: ["${LUDISKUS_API_PORT:-8096}:8080"]
     networks: [hippo]
     depends_on:
       postgres: { condition: service_healthy }
       redis:    { condition: service_healthy }
-      minio:    { condition: service_started }
       hipcore:  { condition: service_started }
       lunoti-api: { condition: service_started }
 
@@ -97,9 +87,9 @@ Hai service dùng chung image `ludiskus:dev`, vai trò qua `LUDISKUS_ROLE`:
       - LUNOTI_API_URL=http://lunoti-api:8080
       - LUDISKUS_LUNOTI_CLIENT_ID=${LUDISKUS_LUNOTI_CLIENT_ID}
       - LUDISKUS_LUNOTI_CLIENT_SECRET=${LUDISKUS_LUNOTI_CLIENT_SECRET}
-      - LUDISKUS_S3_ENDPOINT=http://minio:9000
-      - LUDISKUS_S3_ACCESS_KEY=${MINIO_ROOT_USER:-minio}
-      - LUDISKUS_S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minio12345}
+      - LUDISKUS_S3_ENDPOINT=http://rustfs-tm:9000
+      - LUDISKUS_S3_ACCESS_KEY=${LUDISKUS_S3_ACCESS_KEY:-minio}
+      - LUDISKUS_S3_SECRET_KEY=${LUDISKUS_S3_SECRET_KEY:-minio12345}
       - LUDISKUS_S3_BUCKET=${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
       - LUDISKUS_PROFILE_SYNC_INTERVAL=${LUDISKUS_PROFILE_SYNC_INTERVAL:-6h}
       - LUDISKUS_SPACE_SYNC_INTERVAL=${LUDISKUS_SPACE_SYNC_INTERVAL:-6h}
@@ -136,9 +126,7 @@ và proxy `/api/ludiskus/*` trong [tm/bff/src/index.ts](../../tm/bff/src/index.t
 | `LUFAMI_API_URL` | `http://lufami-api:8080` | Interaction Platform và điểm hipt |
 | `LUDISKUS_LUNOTI_CLIENT_ID/SECRET` | — | OAuth client gửi event sang lunoti |
 | `LUDISKUS_S3_BUCKET` | `ludiskus-attachments` | Bucket đính kèm |
-| `LUDISKUS_S3_PUBLIC_ENDPOINT` | `http://localhost:9000` | Endpoint MinIO trình duyệt truy cập (ký URL) |
 | `LUDISKUS_MAX_FILE_MB` | `25` | Trần kích thước đính kèm |
-| `LUDISKUS_PRESIGN_TTL` | `5m` | Hạn presigned URL |
 | `LUDISKUS_CACHE_TTL` | `1h` | TTL cache Profile/Space/members trong Redis |
 | `LUDISKUS_PROFILE_SYNC_INTERVAL` / `_SPACE_SYNC_INTERVAL` | `6h` | Chu kỳ full-sync cache |
 | `LUDISKUS_ATTACH_TTL` | `24h` | Hạn dọn đính kèm mồ côi |
@@ -147,7 +135,7 @@ và proxy `/api/ludiskus/*` trong [tm/bff/src/index.ts](../../tm/bff/src/index.t
 
 Lặp lại cấu hình tương ứng trong `docker-compose.prod.yml` (image build sẵn,
 mount read-only, `COOKIE_SECURE` do bff xử lý). Worker và api dùng chung image.
-Bí mật (DB, secret client HipCore/lunoti, MinIO) đặt qua biến môi trường triển
+Bí mật (DB, secret client HipCore/lunoti, RustFS) đặt qua biến môi trường triển
 khai, không commit.
 
 ## 12.8 Lịch nội bộ

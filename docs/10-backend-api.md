@@ -9,7 +9,7 @@ Tiền tố nội bộ `/api/v1`. Người dùng gọi qua **BFF** (`/api/ludisk
 | Method | Path | Mô tả |
 |--------|------|-------|
 | GET | `/healthz` | Liveness |
-| GET | `/readyz` | Readiness (DB + Redis + MinIO + cấu hình HipCore/lunoti) |
+| GET | `/readyz` | Readiness (DB + Redis + RustFS + cấu hình HipCore/lunoti) |
 
 ## 10.2 Space-forum (cộng đồng)
 
@@ -95,8 +95,15 @@ S2S cho Lufami:
 
 | Method | Path | Mô tả |
 |--------|------|-------|
-| POST | `/api/v1/attachments/presign` | Cấp presigned PUT URL ([07](07-dinh-kem.md)) |
-| GET | `/api/v1/attachments/{id}/url` | Presigned GET (Space riêng tư) |
+| POST | `/api/v1/attachments/uploads` | Tạo slot upload qua API ([07](07-dinh-kem.md)) |
+| POST | `/api/v1/attachments/{id}/upload` | Upload bytes, kiểm MIME/dung lượng và hoàn tất slot |
+| POST | `/api/v1/attachments/import` | Import tệp topic/reply từ Tệp của tôi |
+| POST | `/api/v1/editor-assets/uploads` | Tạo slot ảnh editor có idempotency |
+| POST | `/api/v1/editor-assets/{id}/complete` | Trả metadata/Markdown ảnh |
+| POST | `/api/v1/editor-assets/import` | Import ảnh editor từ Tệp của tôi |
+| GET/HEAD | `/api/v1/attachments/{id}/content` | Stream bytes, kiểm quyền, hỗ trợ Range/conditional GET |
+| GET/HEAD | `/api/v1/public/comments/attachments/{id}/content` | Tệp của comment đã published trên resource public |
+| GET | `/api/v1/attachments/{id}/url` | Đường dẫn content API sau khi kiểm quyền |
 | DELETE | `/api/v1/attachments/{id}` | Gỡ đính kèm chưa publish |
 
 ## 10.9 Theo dõi (Subscription)

@@ -100,6 +100,24 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 	if len(in.AttachmentIDs) > 0 && !caps.CanAttach {
 		return nil, false, domain.ErrCommentNotAllowed
 	}
+
+	seenAttachments := map[string]bool{}
+	for _, id := range in.AttachmentIDs {
+		if seenAttachments[id] {
+			return nil, false, domain.ErrValidation
+		}
+		seenAttachments[id] = true
+		att, e := s.repo.GetAttachment(ctx, id)
+		if e != nil {
+			return nil, false, e
+		}
+		if att.UploaderProfileUUID != profileUUID || att.Status != "pending" || att.FinalizedAt == nil || !strings.HasPrefix(att.ObjectKey, "comments/"+t.ID+"/") {
+			return nil, false, domain.ErrValidation
+		}
+		if p.Attachments.ImagesOnly && att.Kind != "image" {
+			return nil, false, domain.ErrValidation
+		}
+	}
 	mode := p.Markdown
 	if in.MarkdownMode != nil {
 		if !narrowerMarkdown(*in.MarkdownMode, p.Markdown) {
@@ -544,17 +562,13 @@ func (s *Service) enrichComments(ctx context.Context, items []*domain.Comment, v
 	}
 }
 
-// signCommentAttachments cấp URL tải xuống cho đính kèm của bình luận. URL là
-// trường tính lúc chạy (`json:"url,omitempty"`), không đọc từ DB: thiếu nó thì
-// khoá "url" biến mất khỏi JSON và frontend lặng lẽ không vẽ đính kèm nào.
-// Luôn dùng PresignGet vì bình luận có thể nằm ngoài mọi space (SpaceUUID nil),
-// nên không suy ra được "space công khai" như nhánh diễn đàn.
+// signCommentAttachments exposes API paths; content access rechecks resource visibility.
 func (s *Service) signCommentAttachments(ctx context.Context, atts []domain.Attachment, deleted bool) []domain.Attachment {
 	if s.store == nil || deleted {
 		return atts
 	}
 	for i := range atts {
-		atts[i].URL, _ = s.store.PresignGet(ctx, atts[i].ObjectKey, atts[i].FileName)
+		atts[i].URL = attachmentContentPath(atts[i].ID)
 	}
 	return atts
 }

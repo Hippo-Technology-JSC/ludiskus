@@ -101,7 +101,7 @@ func TestBoardPermissionsAcceptance(t *testing.T) {
 	exec(`INSERT INTO boards(id,space_uuid,code,name,kind) VALUES($1,$2,'editorial','Editorial','forum')`, boardEditorial, testSpace)
 	exec(`INSERT INTO boards(id,space_uuid,code,name,kind) VALUES($1,$2,'lockdown','Lockdown','forum')`, boardLockedDown, testSpace)
 
-	cfg := &config.Config{CacheTTL: time.Hour, MaxAttachments: 8, MaxFileBytes: 1024 * 1024, OutboxMaxAttempts: 3, PresignTTL: time.Minute, AllowedMIME: []string{"text/plain", "image/png"}}
+	cfg := &config.Config{CacheTTL: time.Hour, MaxAttachments: 8, MaxFileBytes: 1024 * 1024, OutboxMaxAttempts: 3, AllowedMIME: []string{"text/plain", "image/png"}}
 	repo := repository.New(pool)
 	ident := identity.New(repo, nil, cfg, log)
 	svc := service.New(repo, ident, nil, notify.New(cfg), markdown.New(), cfg, nil)

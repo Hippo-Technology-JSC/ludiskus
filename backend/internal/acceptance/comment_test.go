@@ -1,10 +1,13 @@
 package acceptance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
 	"ludiskus/internal/auth"
@@ -562,7 +565,7 @@ func TestCommentAcceptance(t *testing.T) {
 		sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
 		t.Logf("10k roots: HTTP handler + real PostgreSQL page p95=%s (not BFF/browser load)", latencies[18])
 	})
-	t.Run("attachment_url_is_signed_real_minio", func(t *testing.T) {
+	t.Run("attachment_url_is_api_path_real_s3", func(t *testing.T) {
 		// Bảo vệ chống hồi quy: URL là trường tính lúc chạy với `omitempty`, nên khi
 		// quên ký thì khoá "url" biến mất khỏi JSON và frontend lặng lẽ không vẽ gì —
 		// không lỗi, không log. Chỉ khẳng định trên JSON thật mới bắt được.
@@ -575,11 +578,9 @@ func TestCommentAcceptance(t *testing.T) {
 		}
 		attCfg := *cfg
 		attCfg.S3Endpoint = live.S3Endpoint
-		attCfg.S3PublicEndpoint = live.S3Endpoint
 		attCfg.S3AccessKey = live.S3AccessKey
 		attCfg.S3SecretKey = live.S3SecretKey
 		attCfg.S3Bucket = "ludiskus-comment-acceptance"
-		attCfg.PresignTTL = time.Minute
 		attCfg.MaxFileBytes = 1024 * 1024
 		attCfg.MaxAttachments = 8
 		attCfg.AllowedMIME = []string{"image/png"}
@@ -600,20 +601,17 @@ func TestCommentAcceptance(t *testing.T) {
 
 		attSvc := service.New(repo, ident, store, nil, markdown.New(), &attCfg, rdb)
 		ref := target.Ref()
-		pre, e := attSvc.PresignUpload(ctx, member, service.PresignInput{ResourceRef: &ref, FileName: "anh.png", ContentType: "image/png", SizeBytes: 5})
+		var pngData bytes.Buffer
+		if e = png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))); e != nil {
+			t.Fatal(e)
+		}
+		pre, e := attSvc.BeginUpload(ctx, member, service.UploadInput{ResourceRef: &ref, FileName: "anh.png", ContentType: "image/png", SizeBytes: int64(pngData.Len())})
 		if e != nil {
 			t.Fatal(e)
 		}
 		defer store.Remove(ctx, pre.ObjectKey)
-		req, _ := http.NewRequest("PUT", pre.UploadURL, strings.NewReader("hello"))
-		req.Header.Set("Content-Type", "image/png")
-		res, e := http.DefaultClient.Do(req)
-		if e != nil {
+		if e = attSvc.UploadAttachment(ctx, member, pre.AttachmentID, "image/png", bytes.NewReader(pngData.Bytes())); e != nil {
 			t.Fatal(e)
-		}
-		res.Body.Close()
-		if res.StatusCode != 200 {
-			t.Fatalf("upload %d", res.StatusCode)
 		}
 		created, _, e := attSvc.CreateComment(ctx, ref, member, "with-attachment", service.CreateCommentInput{BodyMD: "Kèm một ảnh", AttachmentIDs: []string{pre.AttachmentID}})
 		if e != nil {
@@ -629,7 +627,7 @@ func TestCommentAcceptance(t *testing.T) {
 				t.Fatalf("%s: đính kèm không được ký URL", where)
 			}
 			encoded, _ := json.Marshal(atts[0])
-			if !strings.Contains(string(encoded), `"url":"http`) {
+			if !strings.Contains(string(encoded), `"url":"/api/ludiskus/attachments/`) {
 				t.Fatalf("%s: JSON thiếu khoá url: %s", where, encoded)
 			}
 		}

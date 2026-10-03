@@ -603,15 +603,12 @@ func (s *Service) enrichPosts(ctx context.Context, spaceUUID string, posts []dom
 	}
 	pm := s.ident.ProfileMap(ctx, authors)
 	attMap, _ := s.repo.AttachmentsForPosts(ctx, ids)
-	public := s.spaceIsPublic(ctx, spaceUUID)
 	for i := range posts {
 		posts[i].Author = pm[posts[i].AuthorProfileUUID]
 		atts := attMap[posts[i].ID]
 		for j := range atts {
-			if public && posts[i].Status == domain.StatusPublished {
-				atts[j].URL = s.store.PublicURL(atts[j].ObjectKey)
-			} else if s.store != nil {
-				atts[j].URL, _ = s.store.PresignGet(ctx, atts[j].ObjectKey, atts[j].FileName)
+			if s.store != nil {
+				atts[j].URL = attachmentContentPath(atts[j].ID)
 			}
 		}
 		posts[i].Attachments = atts

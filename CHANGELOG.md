@@ -1,3 +1,13 @@
+## 2026-10-03
+
+### Changed
+- Dùng RustFS chung qua endpoint S3 nội bộ/path-style, tái sử dụng các key S3 hiện có; bỏ public endpoint, presign TTL và container/init/volume MinIO khỏi Compose mẫu.
+- Upload attachment/ảnh editor qua API bytes có kiểm quyền, MIME thực, dung lượng, JSON, kích thước ảnh và checksum; chặn ghi đè slot đã upload. GET/HEAD content trả bytes, Range/conditional GET và cache private thay redirect/presigned URL.
+- Comment đính kèm kiểm uploader/resource/finalization; media công khai kiểm lại published/public/policy. Import Tệp của tôi cho topic/reply trả metadata/contentPath API, kiểm quyền và dữ liệu nguồn.
+
+### Added
+- Kiểm thử S3 nội bộ, validation/chống ghi đè và streaming HTTP; cập nhật acceptance API, tài liệu cấu hình/triển khai.
+
 ## 2026-09-30
 
 ### Changed

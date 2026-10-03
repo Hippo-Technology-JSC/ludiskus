@@ -32,48 +32,6 @@ services:
       default:
         aliases:
           - ludiskus-redis
-  minio:
-    image: quay.io/minio/aistor/minio:RELEASE.2026-09-07T08-39-31Z
-    restart: unless-stopped
-    command: ["minio", "server", "/mnt/data", "--console-address", ":9001", "--license", "/minio.license"]
-    environment:
-      MINIO_ROOT_USER: ${LUDISKUS_S3_ACCESS_KEY:-minio}
-      MINIO_ROOT_PASSWORD: ${LUDISKUS_S3_SECRET_KEY:-minio12345}
-    volumes:
-      - ludiskus_minio_data:/mnt/data
-      - ../minio.license:/minio.license:ro
-    ports:
-      - "${LUDISKUS_MINIO_API_PORT:-9109}:9000"
-      - "${LUDISKUS_MINIO_CONSOLE_PORT:-9110}:9001"
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 30s
-      retries: 60
-    networks:
-      default:
-        aliases:
-          - ludiskus-minio
-      shared:
-        aliases:
-          - ludiskus-minio
-
-  minio-init:
-    image: quay.io/minio/aistor/mc:RELEASE.2026-09-06T02-44-40Z
-    restart: "no"
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://ludiskus-minio:9000 ${LUDISKUS_S3_ACCESS_KEY:-minio} ${LUDISKUS_S3_SECRET_KEY:-minio12345}; do sleep 2; done &&
-      for bucket in ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}; do
-        if ! mc stat local/$$bucket >/dev/null 2>&1; then mc mb -p local/$$bucket; fi;
-      done
-      "
-    depends_on:
-      minio:
-        condition: service_healthy
-    networks:
-      - default
-
   ludiskus-api:
     build:
       context: ./backend
@@ -97,15 +55,13 @@ services:
       LUNOTI_API_URL: ${LUNOTI_API_URL:-http://lunoti-api:8080}
       LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
       LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
-      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT:-http://ludiskus-minio:9000}
-      LUDISKUS_S3_PUBLIC_ENDPOINT: ${LUDISKUS_S3_PUBLIC_ENDPOINT:-http://localhost:9109}
+      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT:-http://rustfs-tm:9000}
       LUDISKUS_S3_ACCESS_KEY: ${LUDISKUS_S3_ACCESS_KEY:-minio}
       LUDISKUS_S3_SECRET_KEY: ${LUDISKUS_S3_SECRET_KEY:-minio12345}
       LUDISKUS_S3_BUCKET: ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
       LUDISKUS_MAX_FILE_MB: ${LUDISKUS_MAX_FILE_MB:-25}
-      LUDISKUS_PRESIGN_TTL: ${LUDISKUS_PRESIGN_TTL:-5m}
       LUDISKUS_MAX_ATTACHMENTS: ${LUDISKUS_MAX_ATTACHMENTS:-10}
-      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,application/zip}
+      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json,text/csv,application/zip}
       LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
       LUDISKUS_COMMENT_ENABLED: ${LUDISKUS_COMMENT_ENABLED:-true}
       LUDISKUS_COMMENT_RESOLVE_TIMEOUT: ${LUDISKUS_COMMENT_RESOLVE_TIMEOUT:-3s}
@@ -135,7 +91,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio-init: {condition: service_completed_successfully}
   ludiskus-worker:
     build:
       context: ./backend
@@ -158,8 +113,7 @@ services:
       LUNOTI_API_URL: ${LUNOTI_API_URL:-http://lunoti-api:8080}
       LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
       LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
-      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT:-http://ludiskus-minio:9000}
-      LUDISKUS_S3_PUBLIC_ENDPOINT: ${LUDISKUS_S3_PUBLIC_ENDPOINT:-http://localhost:9109}
+      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT:-http://rustfs-tm:9000}
       LUDISKUS_S3_ACCESS_KEY: ${LUDISKUS_S3_ACCESS_KEY:-minio}
       LUDISKUS_S3_SECRET_KEY: ${LUDISKUS_S3_SECRET_KEY:-minio12345}
       LUDISKUS_S3_BUCKET: ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
@@ -169,7 +123,7 @@ services:
       LUDISKUS_ATTACH_TTL: ${LUDISKUS_ATTACH_TTL:-24h}
       LUDISKUS_OUTBOX_MAX_ATTEMPTS: ${LUDISKUS_OUTBOX_MAX_ATTEMPTS:-6}
       LUDISKUS_MAX_ATTACHMENTS: ${LUDISKUS_MAX_ATTACHMENTS:-10}
-      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,application/zip}
+      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json,text/csv,application/zip}
       LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
       LUDISKUS_COMMENT_ENABLED: ${LUDISKUS_COMMENT_ENABLED:-true}
       LUDISKUS_COMMENT_RESOLVE_TIMEOUT: ${LUDISKUS_COMMENT_RESOLVE_TIMEOUT:-3s}
@@ -194,11 +148,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio-init: {condition: service_completed_successfully}
 volumes:
   ludiskus_postgres_data:
 
-  ludiskus_minio_data:
 networks:
   default:
     driver: bridge

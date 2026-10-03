@@ -158,7 +158,7 @@ func (r *Repo) InsertComment(ctx context.Context, in InsertCommentInput) (*domai
 	}
 	if len(in.AttachmentIDs) > 0 {
 		tag, e := tx.Exec(ctx, `UPDATE attachments SET comment_id=$2,status='attached'
-			WHERE id=ANY($1::uuid[]) AND status='pending' AND space_uuid IS NOT DISTINCT FROM $3`, in.AttachmentIDs, out.ID, in.SpaceUUID)
+			WHERE id=ANY($1::uuid[]) AND status='pending' AND finalized_at IS NOT NULL AND space_uuid IS NOT DISTINCT FROM $3`, in.AttachmentIDs, out.ID, in.SpaceUUID)
 		if e != nil {
 			return nil, false, e
 		}
