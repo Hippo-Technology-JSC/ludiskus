@@ -8,10 +8,15 @@
 ### Added
 - Kiểm thử S3 nội bộ, validation/chống ghi đè và streaming HTTP; cập nhật acceptance API, tài liệu cấu hình/triển khai.
 
+## 2026-10-01
+
+### Changed
+- Tự build MinIO Community và mc từ source theo phiên bản đã pin, không cần license; mỗi service có thể build độc lập.
+
 ## 2026-09-30
 
 ### Changed
-- Chuyển MinIO và MinIO Client sang image MinIO AIStor Free đã pin phiên bản; mount license từ file local không đưa vào Git.
+- Dùng MinIO Community tự build từ source theo phiên bản đã pin, không cần file license.
 - Bổ sung MinIO local và khởi tạo bucket vào Docker Compose standalone; đặt endpoint S3 mẫu trỏ tới MinIO local.
 - Tách Docker development khỏi các lớp tải module và sao chép source; dùng BuildKit cache cho module và biên dịch Go, đồng thời lọc file local khỏi build context.
 
