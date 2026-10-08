@@ -1,3 +1,13 @@
+## 2026-10-08
+
+### Added
+- Bộ tài liệu thiết kế + kế hoạch thực hiện **LuPoll** — phân hệ bình chọn dùng độc lập hoặc gắn vào chủ đề diễn đàn, bình luận LuComment, hay bất kỳ nội dung nào của hệ sinh thái, tại [docs/poll/](docs/poll/README.md) (15 tài liệu thiết kế: 18 quyết định kiến trúc, mô hình miền 5 loại bình chọn, gắn kết qua `comment_targets` dùng chung, bốn mức danh tính kèm giới hạn trung thực của bỏ phiếu kín, kiểm phiếu IRV/Borda có luật phá hoà, database `0014`–`0017`, API, frontend, tích hợp service, lộ trình GĐ0–GĐ7, đầu việc `LP-x.y`).
+- Mục "Phân hệ" trong [docs/README.md](docs/README.md) trỏ tới bộ tài liệu trên.
+- Triển khai LuPoll trong API/worker hiện có: migration `0014`–`0017`, policy bốn tầng, năm loại phiếu, bốn mức danh tính, bỏ/đổi/rút phiếu nguyên tử và idempotent, snapshot/kết quả chốt, kiểm duyệt, CSV, lời mời, outbox, đối soát và metrics.
+- Gắn poll nháp vào topic/post/reply/comment trong cùng transaction; kế thừa resolver/quyền/vòng đời anchor, API công khai GET/HEAD qua BFF và API S2S.
+- Giao diện tm dùng chung, trang danh sách/chi tiết, tab quản trị, tích hợp Space và các trang nội dung đợt 1; khối `poll` Luxtory với parity catalog Go/TS và liên kết khi xuất tài liệu.
+- [Hiện trạng thực hiện và nghiệm thu LuPoll](docs/poll/15-hien-trang-thuc-hien.md), gồm kiểm thử PostgreSQL đồng thời và các cổng nghiệm thu chưa chạy.
+
 ## 2026-10-03
 
 ### Changed

@@ -14,7 +14,8 @@ import (
 )
 
 type Repo struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	polls domain.PollAttacher
 }
 
 func New(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
@@ -487,3 +488,5 @@ func (r *Repo) bumpBoardActivity(ctx context.Context, q pgxExec, boardID string,
 type pgxExec interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
+
+func (r *Repo) SetPollAttacher(p domain.PollAttacher) { r.polls = p }

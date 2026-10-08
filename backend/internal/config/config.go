@@ -74,6 +74,16 @@ type Config struct {
 	CommentThumbHosts      []string
 	CommentServiceClients  string
 
+	PollEnabled              bool
+	PollDraftTTL             time.Duration
+	PollCloseTick            time.Duration
+	PollRemindTick           time.Duration
+	PollResultsCacheTTL      time.Duration
+	PollAnonSnapshotInterval time.Duration
+	PollNewProfileHours      int
+	PollAutoHideThreshold    int
+	PollRankedLiveMax        int
+
 	LogLevel string
 }
 
@@ -176,6 +186,37 @@ func Load() (*Config, error) {
 		*dst = v
 	}
 
+	cfg.PollEnabled = get("LUDISKUS_POLL_ENABLED", "true") == "true"
+	for key, item := range map[string]struct {
+		dst      *time.Duration
+		fallback string
+	}{
+		"LUDISKUS_POLL_DRAFT_TTL":              {&cfg.PollDraftTTL, "24h"},
+		"LUDISKUS_POLL_CLOSE_TICK":             {&cfg.PollCloseTick, "30s"},
+		"LUDISKUS_POLL_REMIND_TICK":            {&cfg.PollRemindTick, "5m"},
+		"LUDISKUS_POLL_RESULTS_CACHE_TTL":      {&cfg.PollResultsCacheTTL, "10m"},
+		"LUDISKUS_POLL_ANON_SNAPSHOT_INTERVAL": {&cfg.PollAnonSnapshotInterval, "5m"},
+	} {
+		v, e := time.ParseDuration(get(key, item.fallback))
+		if e != nil || v <= 0 {
+			return nil, fmt.Errorf("%s: cần khoảng thời gian dương", key)
+		}
+		*item.dst = v
+	}
+	for key, item := range map[string]struct {
+		dst      *int
+		fallback string
+	}{
+		"LUDISKUS_POLL_NEW_PROFILE_HOURS":   {&cfg.PollNewProfileHours, "24"},
+		"LUDISKUS_POLL_AUTO_HIDE_THRESHOLD": {&cfg.PollAutoHideThreshold, "5"},
+		"LUDISKUS_POLL_RANKED_LIVE_MAX":     {&cfg.PollRankedLiveMax, "50000"},
+	} {
+		v, e := strconv.Atoi(get(key, item.fallback))
+		if e != nil || v < 0 {
+			return nil, fmt.Errorf("%s: số nguyên không âm", key)
+		}
+		*item.dst = v
+	}
 	maxConns, err := strconv.Atoi(get("LUDISKUS_DB_MAX_CONNS", "10"))
 	if err != nil {
 		return nil, fmt.Errorf("LUDISKUS_DB_MAX_CONNS: %w", err)
@@ -192,6 +233,7 @@ func commentServiceClients() string {
 	for _, item := range []struct{ code, env string }{
 		{"lumuse", "LUMUSE_HIPCORE_CLIENT_ID"}, {"lukode", "LUKODE_HIPCORE_CLIENT_ID"},
 		{"luprojet", "LUPROJET_HIPCORE_CLIENT_ID"}, {"lukolek", "LUKOLEK_HIPCORE_CLIENT_ID"},
+		{"luxtory", "LUXTORY_HIPCORE_CLIENT_ID"}, {"lufami", "LUFAMI_HIPCORE_CLIENT_ID"},
 	} {
 		if value := os.Getenv(item.env); value != "" {
 			pairs = append(pairs, item.code+"="+value)

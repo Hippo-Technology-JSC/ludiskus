@@ -1,0 +1,223 @@
+{
+  "policies": [
+    {
+      "service": "ludiskus",
+      "types": [
+        "standalone"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "authenticated",
+        "max_per_anchor": 1,
+        "kinds": [
+          "single",
+          "multiple",
+          "ranked",
+          "scale",
+          "schedule"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 30,
+        "public_read": true,
+        "new_profile_can_vote": true
+      }
+    },
+    {
+      "service": "ludiskus",
+      "types": [
+        "topic",
+        "post"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "owner",
+        "max_per_anchor": 1,
+        "kinds": [
+          "single",
+          "multiple",
+          "ranked",
+          "scale",
+          "schedule"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 30,
+        "public_read": true,
+        "new_profile_can_vote": true
+      }
+    },
+    {
+      "service": "ludiskus",
+      "types": [
+        "reply",
+        "comment"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "owner",
+        "max_per_anchor": 1,
+        "kinds": [
+          "single",
+          "multiple",
+          "scale"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 20,
+        "public_read": true,
+        "new_profile_can_vote": true
+      }
+    },
+    {
+      "service": "lumuse",
+      "types": [
+        "movie",
+        "album",
+        "playlist"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "participants",
+        "max_per_anchor": 3,
+        "kinds": [
+          "single",
+          "multiple",
+          "scale"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 20,
+        "public_read": true,
+        "new_profile_can_vote": false
+      }
+    },
+    {
+      "service": "luprojet",
+      "types": [
+        "project",
+        "doc",
+        "update"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "participants",
+        "max_per_anchor": 5,
+        "kinds": [
+          "single",
+          "multiple",
+          "ranked",
+          "scale",
+          "schedule"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 30,
+        "public_read": false,
+        "new_profile_can_vote": true
+      }
+    },
+    {
+      "service": "lukode",
+      "types": [
+        "presentation"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "owner",
+        "max_per_anchor": 20,
+        "kinds": [
+          "single",
+          "multiple",
+          "ranked",
+          "scale"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 20,
+        "public_read": true,
+        "new_profile_can_vote": true
+      }
+    },
+    {
+      "service": "luxtory",
+      "types": [
+        "document",
+        "page"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "participants",
+        "max_per_anchor": 10,
+        "kinds": [
+          "single",
+          "multiple",
+          "ranked",
+          "scale",
+          "schedule"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 30,
+        "public_read": false,
+        "new_profile_can_vote": true
+      }
+    },
+    {
+      "service": "lufami",
+      "types": [
+        "calendar_event",
+        "family_post"
+      ],
+      "config": {
+        "enabled": true,
+        "who_can_create": "participants",
+        "max_per_anchor": 3,
+        "kinds": [
+          "single",
+          "multiple",
+          "ranked",
+          "scale",
+          "schedule"
+        ],
+        "identity_modes": [
+          "public",
+          "owner_only",
+          "anonymous",
+          "secret"
+        ],
+        "max_options": 30,
+        "public_read": false,
+        "new_profile_can_vote": true
+      }
+    }
+  ]
+}

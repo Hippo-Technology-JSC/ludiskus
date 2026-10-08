@@ -26,7 +26,7 @@ func (s *Service) resolveLocalCommentResource(ctx context.Context, resourceType,
 }
 
 func (s *Service) ensureCommentTarget(ctx context.Context, ref domain.ResourceRef, creator string) (*domain.CommentTarget, error) {
-	if !s.cfg.CommentEnabled {
+	if !s.cfg.CommentEnabled && !s.cfg.PollEnabled {
 		return nil, domain.ErrNotFound
 	}
 	if err := ref.Validate(); err != nil {
@@ -52,6 +52,9 @@ func (s *Service) ensureCommentTarget(ctx context.Context, ref domain.ResourceRe
 			} else if errors.Is(resolveErr, commentresolver.ErrNotFound) {
 				t.State = "gone"
 				_ = s.repo.SetCommentTargetState(ctx, t.ID, "gone", true)
+				return nil, domain.ErrResourceGone
+			} else {
+				return nil, domain.ErrResolverUnavailable
 			}
 		}
 		return t, nil
@@ -109,36 +112,8 @@ func (s *Service) ensureCommentReadable(ctx context.Context, ref domain.Resource
 	if err != nil {
 		return nil, domain.CommentPolicy{}, err
 	}
-	if t.State == "gone" {
-		return nil, domain.CommentPolicy{}, domain.ErrResourceGone
-	}
-	if t.State == "blocked" {
-		return nil, domain.CommentPolicy{}, domain.ErrResourceBlocked
-	}
-	owner := t.OwnerID != nil && *t.OwnerID == profileUUID
-	if t.State == "unverified" && (t.CreatedBy == nil || *t.CreatedBy != profileUUID) && !owner {
-		return nil, domain.CommentPolicy{}, domain.ErrNotFound
-	}
-	allowed := false
-	switch t.Visibility {
-	case "public":
-		allowed = true
-	case "authenticated":
-		allowed = profileUUID != ""
-	case "space":
-		allowed = t.SpaceUUID != nil && s.ident.IsMember(ctx, *t.SpaceUUID, profileUUID)
-	case "private", "connections":
-		allowed = owner || (t.OwnerType != nil && *t.OwnerType == "space" && t.OwnerID != nil && canModerate(s.role(ctx, *t.OwnerID, profileUUID)))
-	}
-	moderator := owner
-	if t.SpaceUUID != nil {
-		moderator = moderator || canModerate(s.role(ctx, *t.SpaceUUID, profileUUID))
-	}
-	if !allowed && !moderator {
-		return nil, domain.CommentPolicy{}, domain.ErrForbidden
-	}
-	if t.ThreadState == "hidden" && !moderator {
-		return nil, domain.CommentPolicy{}, domain.ErrNotFound
+	if err := s.ensureTargetReadable(ctx, t, profileUUID); err != nil {
+		return nil, domain.CommentPolicy{}, err
 	}
 	p, err := s.commentPolicy(ctx, t)
 	if err != nil {
@@ -262,4 +237,39 @@ func defaultString(v, d string) string {
 		return d
 	}
 	return v
+}
+
+func (s *Service) ensureTargetReadable(ctx context.Context, t *domain.CommentTarget, profileUUID string) error {
+	if t.State == "gone" {
+		return domain.ErrResourceGone
+	}
+	if t.State == "blocked" {
+		return domain.ErrResourceBlocked
+	}
+	owner := t.OwnerID != nil && *t.OwnerID == profileUUID
+	if t.State == "unverified" && (t.CreatedBy == nil || *t.CreatedBy != profileUUID) && !owner {
+		return domain.ErrNotFound
+	}
+	allowed := false
+	switch t.Visibility {
+	case "public":
+		allowed = true
+	case "authenticated":
+		allowed = profileUUID != ""
+	case "space":
+		allowed = t.SpaceUUID != nil && s.ident.IsMember(ctx, *t.SpaceUUID, profileUUID)
+	case "private", "connections":
+		allowed = owner || (t.OwnerType != nil && *t.OwnerType == "space" && t.OwnerID != nil && canModerate(s.role(ctx, *t.OwnerID, profileUUID)))
+	}
+	moderator := owner
+	if t.SpaceUUID != nil {
+		moderator = moderator || canModerate(s.role(ctx, *t.SpaceUUID, profileUUID))
+	}
+	if !allowed && !moderator {
+		return domain.ErrForbidden
+	}
+	if t.ThreadState == "hidden" && !moderator {
+		return domain.ErrNotFound
+	}
+	return nil
 }

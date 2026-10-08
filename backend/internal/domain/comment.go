@@ -174,6 +174,10 @@ type PolicyNotify struct {
 }
 
 type CommentPolicy struct {
+	Poll struct {
+		Enabled       bool `json:"enabled"`
+		MaxPerComment int  `json:"max_per_comment"`
+	} `json:"poll"`
 	Enabled                 bool              `json:"enabled"`
 	WhoCanComment           string            `json:"who_can_comment"`
 	MaxDepth                int               `json:"max_depth"`
@@ -215,6 +219,7 @@ func DefaultCommentPolicy() CommentPolicy {
 }
 
 type CommentCapabilities struct {
+	Poll                  bool              `json:"poll"`
 	CanRead               bool              `json:"canRead"`
 	CanComment            bool              `json:"canComment"`
 	CanReply              bool              `json:"canReply"`
@@ -233,6 +238,7 @@ type CommentCapabilities struct {
 }
 
 type Comment struct {
+	PollIDs            []string        `json:"pollIds,omitempty"`
 	ID                 string          `json:"id"`
 	TargetID           string          `json:"targetId"`
 	ParentID           *string         `json:"parentId,omitempty"`

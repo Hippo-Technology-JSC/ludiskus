@@ -282,6 +282,9 @@ type Report struct {
 }
 
 type ModerationItem struct {
+	Title               string     `json:"title,omitempty"`
+	BodyHTML            string     `json:"bodyHtml,omitempty"`
+	PollID              string     `json:"pollId,omitempty"`
 	ID                  string     `json:"id"`
 	SpaceUUID           string     `json:"spaceUuid"`
 	TargetType          string     `json:"targetType"`

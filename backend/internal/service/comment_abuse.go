@@ -138,3 +138,21 @@ func (s *Service) AdminDecideCommentAbuseFlag(ctx context.Context, id, state, ac
 	}
 	return flag, nil
 }
+
+func (s *Service) checkCommentReportRate(ctx context.Context, profile string) error {
+	if s.redis == nil {
+		return nil
+	}
+	key := "cmt:rl:rep:" + profile
+	n, e := s.redis.Incr(ctx, key).Result()
+	if e != nil {
+		return nil
+	}
+	if n == 1 {
+		_ = s.redis.Expire(ctx, key, time.Hour).Err()
+	}
+	if n > 30 {
+		return domain.ErrRateLimited
+	}
+	return nil
+}

@@ -19,6 +19,9 @@ func (s *Service) ReportComment(ctx context.Context, id, profileUUID, reason str
 	if !valid[reason] {
 		return fmt.Errorf("%w: lý do báo cáo không hợp lệ", domain.ErrValidation)
 	}
+	if err := s.checkCommentReportRate(ctx, profileUUID); err != nil {
+		return err
+	}
 	created, err := s.repo.CreateCommentReport(ctx, t.SpaceUUID, id, profileUUID, reason, note)
 	if err != nil || !created {
 		return err

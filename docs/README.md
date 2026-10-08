@@ -45,6 +45,7 @@ Thiết kế liên checkout cho toolbar **Chú thích ảnh từ clipboard**, co
 | Phân hệ | Tài liệu | Nội dung |
 |---------|----------|----------|
 | **LuComment** | [docs/comment/](comment/README.md) | Bình luận **dùng chung cho toàn hệ sinh thái**, định danh `service:type:id`, không tạo topic diễn đàn. Có code ở GĐ0–GĐ7; còn khoảng thiếu và gate nghiệm thu theo [đối chiếu hiện tại](14-tien-do-thuc-te.md). |
+| **LuPoll** | [docs/poll/](poll/README.md) | Bình chọn **dùng độc lập hoặc gắn vào** chủ đề, bình luận, hay bất kỳ nội dung nào (`service:type:id`); tái dùng resolver + `comment_targets` của LuComment. Kế hoạch 2026-10-08, **chưa code**. |
 
 ## Mục tiêu sử dụng
 

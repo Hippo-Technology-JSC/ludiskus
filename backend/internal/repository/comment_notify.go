@@ -155,7 +155,7 @@ func (r *Repo) CleanupCommentData(ctx context.Context, maxRevisions, auditDays i
 		q    string
 		args []any
 	}{
-		{`DELETE FROM comment_targets WHERE state='gone' AND comment_count=0 AND updated_at<now()-interval '30 days'`, nil},
+		{`DELETE FROM comment_targets WHERE state='gone' AND comment_count=0 AND NOT EXISTS(SELECT 1 FROM polls WHERE anchor_target_id=comment_targets.id) AND updated_at<now()-interval '30 days'`, nil},
 		{`DELETE FROM comment_revisions r USING (SELECT comment_id,revision,row_number() OVER(PARTITION BY comment_id ORDER BY revision DESC) rn FROM comment_revisions) x WHERE r.comment_id=x.comment_id AND r.revision=x.revision AND x.rn>$1`, []any{maxRevisions}},
 		{`DELETE FROM comment_audit_logs WHERE created_at<now()-make_interval(days=>$1)`, []any{auditDays}},
 	}

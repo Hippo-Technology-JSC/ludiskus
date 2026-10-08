@@ -130,12 +130,18 @@ func (r *Repo) GetCommentTargetByID(ctx context.Context, id string) (*domain.Com
 }
 
 func (r *Repo) UpsertCommentTarget(ctx context.Context, t domain.CommentTarget) (*domain.CommentTarget, error) {
+	return r.upsertCommentTarget(ctx, r.pool, t)
+}
+func (r *Repo) UpsertCommentTargetTx(ctx context.Context, tx pgx.Tx, t domain.CommentTarget) (*domain.CommentTarget, error) {
+	return r.upsertCommentTarget(ctx, tx, t)
+}
+func (r *Repo) upsertCommentTarget(ctx context.Context, q pollQuerier, t domain.CommentTarget) (*domain.CommentTarget, error) {
 	t.CanonicalPath = domain.SanitizeCanonicalPath(t.CanonicalPath)
 	if len(t.Capabilities) == 0 {
 		t.Capabilities = json.RawMessage(`{}`)
 	}
 	var out domain.CommentTarget
-	err := scanCommentTarget(r.pool.QueryRow(ctx, `INSERT INTO comment_targets
+	err := scanCommentTarget(q.QueryRow(ctx, `INSERT INTO comment_targets
 		(service_code,resource_type,resource_id,space_uuid,owner_type,owner_id,title,summary,
 		thumbnail_url,canonical_path,visibility,state,thread_state,capabilities,verified_at,created_by)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
@@ -172,7 +178,7 @@ func (r *Repo) SetCommentThreadState(ctx context.Context, id, state string) erro
 func (r *Repo) ListStaleCommentTargets(ctx context.Context, before string, limit int) ([]domain.CommentTarget, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+commentTargetCols+` FROM comment_targets
 		WHERE state IN ('unverified','active','gone') AND (verified_at IS NULL OR verified_at < $1::timestamptz)
-		ORDER BY (comment_count>0) DESC, verified_at NULLS FIRST LIMIT $2`, before, limit)
+		ORDER BY (comment_count>0 OR EXISTS(SELECT 1 FROM polls WHERE anchor_target_id=comment_targets.id AND status IN ('published','pending'))) DESC, verified_at NULLS FIRST LIMIT $2`, before, limit)
 	if err != nil {
 		return nil, err
 	}

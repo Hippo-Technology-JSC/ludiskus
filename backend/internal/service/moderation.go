@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"html"
 	"strings"
 
 	"ludiskus/internal/domain"
@@ -150,7 +151,36 @@ func (s *Service) ListModerationQueue(ctx context.Context, spaceUUID, profileUUI
 	if limit <= 0 {
 		limit = 50
 	}
-	return s.repo.ListModerationQueue(ctx, spaceUUID, state, allowedBoards, limit)
+	items, e := s.repo.ListModerationQueue(ctx, spaceUUID, state, allowedBoards, limit)
+	if e != nil {
+		return nil, e
+	}
+	for i := range items {
+		m := &items[i]
+		if m.TargetType != "poll" && m.TargetType != "poll_option" {
+			continue
+		}
+		id := m.TargetID
+		if m.TargetType == "poll_option" {
+			id, e = s.repo.PollOptionParent(ctx, id)
+			if e != nil {
+				return nil, e
+			}
+		}
+		p, e := s.repo.GetPoll(ctx, id)
+		if e != nil {
+			return nil, e
+		}
+		m.Title = p.Question
+		m.PollID = p.ID
+		for _, o := range p.Options {
+			if o.ID == m.TargetID {
+				m.BodyHTML = html.EscapeString(o.Label)
+				break
+			}
+		}
+	}
+	return items, nil
 }
 
 // ApproveModeration duyệt → publish target (docs/04 §4.4, docs/16 §16.5).
@@ -158,6 +188,9 @@ func (s *Service) ApproveModeration(ctx context.Context, itemID, profileUUID str
 	item, err := s.repo.GetModerationItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.TargetType == "poll" || item.TargetType == "poll_option" {
+		return s.decidePollModeration(ctx, item, profileUUID, true, nil)
 	}
 	if item.TargetType == "comment" {
 		return s.decideCommentModeration(ctx, item, profileUUID, true, nil)
@@ -233,6 +266,9 @@ func (s *Service) RejectModeration(ctx context.Context, itemID, profileUUID stri
 	item, err := s.repo.GetModerationItem(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if item.TargetType == "poll" || item.TargetType == "poll_option" {
+		return s.decidePollModeration(ctx, item, profileUUID, false, note)
 	}
 	if item.TargetType == "comment" {
 		return s.decideCommentModeration(ctx, item, profileUUID, false, note)

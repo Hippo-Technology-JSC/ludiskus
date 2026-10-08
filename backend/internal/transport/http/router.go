@@ -38,6 +38,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			return
 		}
 		metrics.serve(w, r)
+		fmt.Fprint(w, s.svc.PollMetricsText())
 		for _, name := range []string{"topics", "posts", "moderation_pending", "outbox_pending", "outbox_failed"} {
 			fmt.Fprintf(w, "# TYPE ludiskus_forum_%s gauge\nludiskus_forum_%s %d\n", name, name, values[name])
 		}
@@ -50,6 +51,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 		// --- Người dùng → ludiskus (Bearer user, qua BFF) ---
 		r.Group(func(r chi.Router) {
 			r.Use(authn.UserMiddleware)
+			r.Route("/polls", s.pollUserRoutes)
 			r.Route("/comments", func(r chi.Router) {
 				r.Post("/summary", s.commentSummaryBatch)
 				r.Post("/author-counts", s.commentAuthorCountsBatch)
@@ -81,6 +83,10 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Post("/moderation/{item}/reject", s.commentReject)
 			})
 			r.Route("/comment-admin", func(r chi.Router) {
+				r.Get("/poll-policies", s.pollAdmin)
+				r.Put("/poll-policies/{service}/{type}", s.pollAdmin)
+				r.Get("/poll-abuse-flags", s.pollAdmin)
+				r.Post("/poll-reconcile", s.pollAdmin)
 				r.Get("/services", s.uiAdminCommentServices)
 				r.Post("/services", s.uiAdminUpsertCommentService)
 				r.Patch("/services/{code}", s.uiAdminUpsertCommentService)
@@ -99,6 +105,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Get("/", s.getForum)
 				r.Post("/enable", s.enableForum)
 				r.Patch("/settings", s.updateForumSettings)
+				r.With(s.pollGate).Get("/polls", s.pollList)
 				r.Get("/boards", s.listBoards)
 				r.Post("/boards", s.createBoard)
 				r.Get("/topics", s.listSpaceTopics)
@@ -175,6 +182,13 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 			r.Post("/reports/{id}/dismiss", s.dismissReport)
 		})
 
+		r.Route("/public/polls", func(r chi.Router) {
+			r.Use(s.pollGate)
+			r.Get("/{id}", s.pollGet)
+			r.Head("/{id}", s.pollGet)
+			r.Get("/r/{service}/{type}/{id}", s.pollList)
+			r.Head("/r/{service}/{type}/{id}", s.pollList)
+		})
 		r.Route("/public/comments", func(r chi.Router) {
 			r.Get("/attachments/{id}/content", s.publicAttachmentContent)
 			r.Head("/attachments/{id}/content", s.publicAttachmentContent)
@@ -186,6 +200,19 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 		// --- Service/admin → ludiskus (client-credentials) ---
 		r.Group(func(r chi.Router) {
 			r.Use(authn.ServiceMiddleware)
+			r.Route("/s2s/polls", func(r chi.Router) {
+				r.Use(s.pollGate)
+				r.Post("/", s.pollCreate)
+				r.Get("/", s.pollList)
+				r.Get("/{id}", s.pollGet)
+				r.Post("/{id}/attach", s.pollAttach)
+				r.Post("/{id}/{action}", s.pollAction)
+				r.Put("/{id}/invitees", s.pollInvitees)
+				r.Get("/{id}/voters", s.pollPeople)
+				r.Get("/{id}/participants", s.pollPeople)
+				r.Get("/{id}/export.csv", s.pollExport)
+			})
+
 			r.Post("/admin/cache/refresh", s.refreshCache)
 			r.Get("/s2s/interaction-context/{type}/{id}", s.interactionContext)
 			r.Post("/s2s/interaction-context:batch", s.batchInteractionContext)
@@ -199,6 +226,10 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 				r.Get("/export", s.s2sCommentExport)
 			})
 			r.Route("/admin", func(r chi.Router) {
+				r.Get("/poll-policies", s.pollAdmin)
+				r.Put("/poll-policies/{service}/{type}", s.pollAdmin)
+				r.Post("/polls/reconcile", s.pollAdmin)
+				r.Get("/polls/abuse-flags", s.pollAdmin)
 				r.Get("/comment-services", s.adminCommentServices)
 				r.Post("/comment-services", s.adminUpsertCommentService)
 				r.Patch("/comment-services/{code}", s.adminUpsertCommentService)

@@ -56,3 +56,8 @@ func (r *Repo) UpsertCommentPolicy(ctx context.Context, serviceCode, resourceTyp
 		config=EXCLUDED.config,updated_by=EXCLUDED.updated_by,is_active=true`, serviceCode, resourceType, config, updatedBy)
 	return err
 }
+
+func (r *Repo) SeedCommentPolicy(ctx context.Context, serviceCode, resourceType string, config json.RawMessage) error {
+	_, e := r.pool.Exec(ctx, `INSERT INTO comment_policies(service_code,resource_type,config) VALUES($1,$2,$3) ON CONFLICT(service_code,resource_type) DO NOTHING`, serviceCode, resourceType, config)
+	return e
+}

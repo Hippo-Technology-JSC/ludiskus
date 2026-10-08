@@ -95,6 +95,12 @@ func run(log *slog.Logger) error {
 		go commentHardening(ctx, log, svc)
 	}
 
+	if cfg.PollEnabled {
+		go pollJob(ctx, log, "close", cfg.PollCloseTick, func() error { _, e := svc.CloseDuePolls(ctx); return e })
+		go pollJob(ctx, log, "remind", cfg.PollRemindTick, func() error { _, e := svc.RemindPolls(ctx); return e })
+		go pollJob(ctx, log, "sweep", time.Hour, func() error { return svc.SweepPolls(ctx) })
+		go pollReconcile(ctx, log, svc)
+	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
@@ -235,6 +241,43 @@ func cleanup(ctx context.Context, log *slog.Logger, svc *service.Service) {
 			return
 		case <-t.C:
 			svc.CleanupOrphans(ctx, log)
+		}
+	}
+}
+
+func pollJob(ctx context.Context, log *slog.Logger, name string, interval time.Duration, job func() error) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if e := job(); e != nil && ctx.Err() == nil {
+				log.Error("poll worker", "job", name, "err", e)
+			}
+		}
+	}
+}
+func pollReconcile(ctx context.Context, log *slog.Logger, svc *service.Service) {
+	zone := time.FixedZone("Asia/Ho_Chi_Minh", 7*60*60)
+	for {
+		now := time.Now().In(zone)
+		next := time.Date(now.Year(), now.Month(), now.Day(), 3, 30, 0, 0, zone)
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
+		}
+		t := time.NewTimer(time.Until(next))
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+			if n, e := svc.ReconcilePolls(ctx); e != nil {
+				log.Error("poll reconcile", "err", e)
+			} else if n > 0 {
+				log.Warn("poll counts repaired", "fixed", n)
+			}
 		}
 	}
 }

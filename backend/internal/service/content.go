@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"ludiskus/internal/domain"
 	"ludiskus/internal/markdown"
 )
@@ -33,6 +34,7 @@ func validateEditorAssetReferences(body string, attachmentIDs []string) error {
 // --- topics -----------------------------------------------------------------
 
 type TopicInput struct {
+	PollIDs                 []string `json:"pollIds"`
 	Title                   string   `json:"title"`
 	Type                    string   `json:"type"`
 	BodyMD                  string   `json:"bodyMd"`
@@ -95,10 +97,13 @@ func (s *Service) CreateTopic(ctx context.Context, boardID, profileUUID string, 
 	}
 	html := s.renderBody(ctx, board.SpaceUUID, in.BodyMD)
 
-	topic, post, err := s.repo.CreateTopicWithPost(ctx,
+	topic, post, err := s.repo.CreateTopicWithPostHook(ctx,
 		domain.Topic{SpaceUUID: board.SpaceUUID, BoardID: boardID, AuthorProfileUUID: profileUUID,
 			Title: in.Title, Slug: slug, Type: in.Type, Status: status},
-		domain.Post{BodyMD: in.BodyMD, BodyHTML: html, Status: status}, in.AttachmentIDs...)
+		domain.Post{BodyMD: in.BodyMD, BodyHTML: html, Status: status}, in.AttachmentIDs, func(tx pgx.Tx, t *domain.Topic, p *domain.Post) error {
+			snap := buildTopicContext("topic", t.ID, t, nil, forum)
+			return s.polls.AttachDrafts(ctx, tx, profileUUID, domain.ResourceRef{Service: "ludiskus", Type: "topic", ID: t.ID}, *snap, in.PollIDs, status == domain.StatusPending)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +279,7 @@ func (s *Service) TopicAction(ctx context.Context, topicID, profileUUID, action 
 // --- posts ------------------------------------------------------------------
 
 type ReplyInput struct {
+	PollIDs       []string `json:"pollIds"`
 	BodyMD        string   `json:"bodyMd"`
 	ReplyToID     *string  `json:"replyToId"`
 	AttachmentIDs []string `json:"attachmentIds"`
@@ -321,10 +327,13 @@ func (s *Service) CreateReply(ctx context.Context, topicID, profileUUID string, 
 		return nil, err
 	}
 	html := s.renderBody(ctx, t.SpaceUUID, in.BodyMD)
-	post, err := s.repo.CreateReply(ctx, domain.Post{
+	post, err := s.repo.CreateReplyHook(ctx, domain.Post{
 		TopicID: topicID, SpaceUUID: t.SpaceUUID, AuthorProfileUUID: profileUUID,
 		ReplyToID: in.ReplyToID, BodyMD: in.BodyMD, BodyHTML: html, Status: status,
-	}, in.AttachmentIDs...)
+	}, in.AttachmentIDs, func(tx pgx.Tx, p *domain.Post) error {
+		snap := buildTopicContext("reply", p.ID, t, p, forum)
+		return s.polls.AttachDrafts(ctx, tx, profileUUID, domain.ResourceRef{Service: "ludiskus", Type: "reply", ID: p.ID}, *snap, in.PollIDs, status == domain.StatusPending)
+	})
 	if err != nil {
 		return nil, err
 	}

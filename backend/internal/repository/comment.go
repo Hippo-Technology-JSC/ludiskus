@@ -53,6 +53,7 @@ func scanComment(row pgx.Row, c *domain.Comment) error {
 }
 
 type InsertCommentInput struct {
+	AfterInsert         func(pgx.Tx, *domain.Comment) error
 	Comment             domain.Comment
 	MentionProfileUUIDs []string
 	AttachmentIDs       []string
@@ -184,6 +185,11 @@ func (r *Repo) InsertComment(ctx context.Context, in InsertCommentInput) (*domai
 			VALUES($1,$2,$3,$4,$5,COALESCE((SELECT min(flush_after) FROM comment_notify_buffer WHERE event_type=$1 AND recipient_profile_uuid=$2 AND target_id=$3),$6))
 			ON CONFLICT DO NOTHING`, notification.EventType, notification.RecipientProfileUUID, out.TargetID, out.ID, notification.ActorProfileUUID, notification.FlushAfter); err != nil {
 			return nil, false, err
+		}
+	}
+	if in.AfterInsert != nil {
+		if e := in.AfterInsert(tx, &out); e != nil {
+			return nil, false, e
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -444,6 +450,11 @@ func (r *Repo) transitionComment(ctx context.Context, id, newStatus, actor, reas
 				ON CONFLICT DO NOTHING`, notification.EventType, notification.RecipientProfileUUID, out.TargetID, out.ID, notification.ActorProfileUUID, notification.FlushAfter); err != nil {
 				return nil, err
 			}
+		}
+	}
+	if r.polls != nil && (newStatus == "published" || newStatus == "rejected") {
+		if e := r.polls.OnAnchorDecision(ctx, tx, domain.ResourceRef{Service: "ludiskus", Type: "comment", ID: id}, newStatus == "published"); e != nil {
+			return nil, e
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {

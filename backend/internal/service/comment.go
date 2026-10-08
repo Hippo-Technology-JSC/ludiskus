@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/jackc/pgx/v5"
 	"ludiskus/internal/domain"
 	"ludiskus/internal/markdown"
 	"ludiskus/internal/repository"
@@ -34,6 +35,7 @@ type CommentPage struct {
 }
 
 type CreateCommentInput struct {
+	PollIDs        []string `json:"pollIds"`
 	BodyMD         string   `json:"bodyMd"`
 	ParentID       *string  `json:"parentId"`
 	AttachmentIDs  []string `json:"attachmentIds"`
@@ -170,6 +172,9 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 	if err != nil {
 		return nil, false, err
 	}
+	if len(in.PollIDs) > 0 && (!caps.Poll || len(in.PollIDs) > p.Poll.MaxPerComment) {
+		return nil, false, domain.ErrValidation
+	}
 	comment.Status = status
 	if modSource != "" {
 		comment.ModerationSource = &modSource
@@ -186,7 +191,10 @@ func (s *Service) CreateComment(ctx context.Context, ref domain.ResourceRef, pro
 		}
 	}
 	out, created, err := s.repo.InsertComment(ctx, repository.InsertCommentInput{Comment: comment, MentionProfileUUIDs: mentions,
-		AttachmentIDs: in.AttachmentIDs, SpaceUUID: t.SpaceUUID, ModerationSource: modSource, Notifications: notifications})
+		AttachmentIDs: in.AttachmentIDs, SpaceUUID: t.SpaceUUID, ModerationSource: modSource, Notifications: notifications, AfterInsert: func(tx pgx.Tx, c *domain.Comment) error {
+			snap := s.buildCommentContext(ctx, c, t)
+			return s.polls.AttachDrafts(ctx, tx, profileUUID, domain.ResourceRef{Service: "ludiskus", Type: "comment", ID: c.ID}, *snap, in.PollIDs, status == domain.CommentPending)
+		}})
 	if err != nil {
 		return nil, false, err
 	}
@@ -527,6 +535,33 @@ func decodeCommentCursor(v string) (*time.Time, string, error) {
 }
 
 func (s *Service) enrichComments(ctx context.Context, items []*domain.Comment, viewer string, moderator bool) {
+	if s.polls != nil {
+		ids := []string{}
+		var collect func(*domain.Comment)
+		collect = func(c *domain.Comment) {
+			ids = append(ids, c.ID)
+			for i := range c.PreviewReplies {
+				collect(&c.PreviewReplies[i])
+			}
+		}
+		for _, c := range items {
+			collect(c)
+		}
+		byID, e := s.polls.PollIDs(ctx, ids)
+		if e == nil {
+			var assign func(*domain.Comment)
+			assign = func(c *domain.Comment) {
+				c.PollIDs = byID[c.ID]
+				for i := range c.PreviewReplies {
+					assign(&c.PreviewReplies[i])
+				}
+			}
+			for _, c := range items {
+				assign(c)
+			}
+		}
+	}
+
 	uuids := []string{}
 	ids := []string{}
 	for _, c := range items {

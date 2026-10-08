@@ -23,6 +23,15 @@ func badRequest(w http.ResponseWriter, msg string) {
 
 // writeError ánh xạ lỗi miền → mã HTTP với body chuẩn.
 func writeError(w http.ResponseWriter, log *slog.Logger, err error) {
+	var pollErr *domain.PollError
+	if errors.As(err, &pollErr) {
+		body := map[string]any{"code": pollErr.Code, "message": pollErr.Code}
+		if pollErr.Field != "" {
+			body["details"] = map[string]string{"field": pollErr.Field}
+		}
+		writeJSON(w, pollErr.Status, map[string]any{"error": body})
+		return
+	}
 	code, status := "internal_error", http.StatusInternalServerError
 	switch {
 	case errors.Is(err, domain.ErrNotFound):

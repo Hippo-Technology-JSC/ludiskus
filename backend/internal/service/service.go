@@ -28,18 +28,21 @@ import (
 )
 
 type Service struct {
-	repo          *repository.Repo
-	ident         *identity.Service
-	store         *storage.Store
-	lunoti        *notify.Client
-	hipt          *hipt.Client
-	md            *markdown.Renderer
-	cfg           *config.Config
-	redis         *redis.Client
-	resolver      *commentresolver.Resolver
-	personalFiles *personalfiles.Client
-	policyMu      sync.Mutex
-	policyCache   map[string]cachedCommentPolicy
+	pollMetrics     pollMetricStore
+	repo            *repository.Repo
+	polls           domain.PollAttacher
+	ident           *identity.Service
+	store           *storage.Store
+	lunoti          *notify.Client
+	hipt            *hipt.Client
+	md              *markdown.Renderer
+	cfg             *config.Config
+	redis           *redis.Client
+	resolver        *commentresolver.Resolver
+	personalFiles   *personalfiles.Client
+	policyMu        sync.Mutex
+	policyCache     map[string]cachedCommentPolicy
+	pollPolicyCache map[string]cachedPollPolicy
 
 	defaultBoards []seedBoard
 	bannedWords   []string
@@ -61,6 +64,9 @@ func New(repo *repository.Repo, ident *identity.Service, store *storage.Store, l
 	// Tích hợp điểm hipt: dùng lại chính OAuth client HipCore của ludiskus.
 	s.hipt = hipt.New(cfg.LufamiURL, cfg.HipcoreURL, cfg.HipcoreClientID, cfg.HipcoreClientSecret)
 	s.loadSeeds()
+	s.loadPollSeeds()
+	s.polls = s
+	repo.SetPollAttacher(s)
 	_ = s.repo.ApplyCommentServiceClients(context.Background(), cfg.CommentServiceClients)
 	return s
 }
@@ -124,7 +130,7 @@ func (s *Service) loadSeeds() {
 			defer cancel()
 			for _, p := range sf.Policies {
 				for _, typ := range p.Types {
-					_ = s.repo.UpsertCommentPolicy(ctx, p.Service, typ, p.Config, nil)
+					_ = s.repo.SeedCommentPolicy(ctx, p.Service, typ, p.Config)
 				}
 			}
 		}

@@ -26,6 +26,9 @@ func scanTopic(row pgx.Row, t *domain.Topic) error {
 // CreateTopicWithPost tạo Topic + Post đầu trong một transaction, cập nhật đếm
 // board. status truyền vào (published | pending tuỳ kiểm duyệt).
 func (r *Repo) CreateTopicWithPost(ctx context.Context, t domain.Topic, p domain.Post, attachmentIDs ...string) (*domain.Topic, *domain.Post, error) {
+	return r.CreateTopicWithPostHook(ctx, t, p, attachmentIDs, nil)
+}
+func (r *Repo) CreateTopicWithPostHook(ctx context.Context, t domain.Topic, p domain.Post, attachmentIDs []string, hook func(pgx.Tx, *domain.Topic, *domain.Post) error) (*domain.Topic, *domain.Post, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -60,6 +63,11 @@ func (r *Repo) CreateTopicWithPost(ctx context.Context, t domain.Topic, p domain
 	}
 	if err := attachForumFiles(ctx, tx, attachmentIDs, outP.ID, t.SpaceUUID, t.AuthorProfileUUID); err != nil {
 		return nil, nil, err
+	}
+	if hook != nil {
+		if e := hook(tx, &outT, &outP); e != nil {
+			return nil, nil, e
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, err
@@ -147,8 +155,20 @@ func (r *Repo) UpdateTopicMeta(ctx context.Context, id, title string) (*domain.T
 }
 
 func (r *Repo) SetTopicStatus(ctx context.Context, id, status string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE topics SET status = $2::topic_status WHERE id = $1`, id, status)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE topics SET status=$2::topic_status WHERE id=$1`, id, status); err != nil {
+		return err
+	}
+	if r.polls != nil {
+		if err = r.polls.OnAnchorDecision(ctx, tx, domain.ResourceRef{Service: "ludiskus", Type: "topic", ID: id}, status == "published"); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repo) SetTopicPinned(ctx context.Context, id string, pinned bool) error {
@@ -219,6 +239,9 @@ func scanPost(row pgx.Row, p *domain.Post) error {
 
 // CreateReply tạo post trả lời + cập nhật đếm topic/board (nếu published).
 func (r *Repo) CreateReply(ctx context.Context, p domain.Post, attachmentIDs ...string) (*domain.Post, error) {
+	return r.CreateReplyHook(ctx, p, attachmentIDs, nil)
+}
+func (r *Repo) CreateReplyHook(ctx context.Context, p domain.Post, attachmentIDs []string, hook func(pgx.Tx, *domain.Post) error) (*domain.Post, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -248,6 +271,11 @@ func (r *Repo) CreateReply(ctx context.Context, p domain.Post, attachmentIDs ...
 	}
 	if err := attachForumFiles(ctx, tx, attachmentIDs, out.ID, p.SpaceUUID, p.AuthorProfileUUID); err != nil {
 		return nil, err
+	}
+	if hook != nil {
+		if e := hook(tx, &out); e != nil {
+			return nil, e
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -357,6 +385,20 @@ func (r *Repo) transitionForumPost(ctx context.Context, id, status string) (*dom
 	if p.IsFirst {
 		if _, err = tx.Exec(ctx, `UPDATE topics SET status=$2::topic_status WHERE id=$1`, p.TopicID, status); err != nil {
 			return nil, err
+		}
+	}
+	if r.polls != nil {
+		typ := "reply"
+		if p.IsFirst {
+			typ = "post"
+		}
+		if err = r.polls.OnAnchorDecision(ctx, tx, domain.ResourceRef{Service: "ludiskus", Type: typ, ID: id}, status == "published"); err != nil {
+			return nil, err
+		}
+		if p.IsFirst {
+			if err = r.polls.OnAnchorDecision(ctx, tx, domain.ResourceRef{Service: "ludiskus", Type: "topic", ID: p.TopicID}, status == "published"); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {

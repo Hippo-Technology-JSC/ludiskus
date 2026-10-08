@@ -156,6 +156,9 @@ func TestTemplateVariablesAreActuallySent(t *testing.T) {
 		"ludiskus.comment.pending":    {"count", "spaceName", "url"},
 		"ludiskus.comment.moderated":  {"decision", "note", "url"},
 	}
+	for _, event := range []string{"closed", "closing_soon", "invited", "option_pending", "moderated"} {
+		sent["ludiskus.poll."+event] = []string{"pollId", "question", "actionUrl", "anchorTitle"}
+	}
 	raw, err := db.Seeds.ReadFile("seeds/lunoti_event_types.json")
 	if err != nil {
 		t.Fatal(err)

@@ -12,6 +12,9 @@ import (
 func (s *Service) InteractionContext(
 	ctx context.Context, resourceType, resourceID string,
 ) (*domain.InteractionContext, error) {
+	if resourceType == "poll" {
+		return s.pollInteractionContext(ctx, resourceID)
+	}
 	if resourceType == "comment" {
 		comment, err := s.repo.GetComment(ctx, resourceID)
 		if err != nil {
@@ -21,20 +24,7 @@ func (s *Service) InteractionContext(
 		if err != nil {
 			return nil, err
 		}
-		state := interactionState(comment.Status)
-		owner := &domain.InteractionOwner{Type: "profile"}
-		if comment.AuthorProfileUUID != nil {
-			owner.ID = *comment.AuthorProfileUUID
-		} else if target.OwnerID != nil {
-			owner.ID = *target.OwnerID
-			if target.OwnerType != nil {
-				owner.Type = *target.OwnerType
-			}
-		}
-		return &domain.InteractionContext{Type: "comment", ID: comment.ID, Exists: true, Owner: owner,
-			SpaceUUID: target.SpaceUUID, Visibility: target.Visibility, State: state, Title: target.Title,
-			Summary: excerptOf(comment.BodyMD), ThumbnailURL: target.ThumbnailURL,
-			CanonicalPath: commentURL(target, comment.ID), Capabilities: json.RawMessage(`{}`)}, nil
+		return s.buildCommentContext(ctx, comment, target), nil
 	}
 	var topic *domain.Topic
 	var post *domain.Post
@@ -61,6 +51,9 @@ func (s *Service) InteractionContext(
 		return nil, err
 	}
 
+	return buildTopicContext(resourceType, resourceID, topic, post, forum), nil
+}
+func buildTopicContext(resourceType, resourceID string, topic *domain.Topic, post *domain.Post, forum *domain.SpaceForum) *domain.InteractionContext {
 	state := interactionState(topic.Status)
 	if post != nil {
 		postState := interactionState(post.Status)
@@ -91,7 +84,7 @@ func (s *Service) InteractionContext(
 		SpaceUUID: &spaceUUID, Visibility: visibility, State: state,
 		Title: title, Summary: summary, CanonicalPath: path,
 		Capabilities: json.RawMessage(`{}`),
-	}, nil
+	}
 }
 
 func interactionState(status string) string {
@@ -232,4 +225,80 @@ func interactionResourceType(post *domain.Post) string {
 		return "post"
 	}
 	return "reply"
+}
+
+func (s *Service) buildCommentContext(ctx context.Context, c *domain.Comment, t *domain.CommentTarget) *domain.InteractionContext {
+	owner := &domain.InteractionOwner{Type: "profile"}
+	if c.AuthorProfileUUID != nil {
+		owner.ID = *c.AuthorProfileUUID
+	}
+	if c.AuthorKind == "space" && c.AuthorSpaceUUID != nil {
+		owner.Type = "space"
+		owner.ID = *c.AuthorSpaceUUID
+	}
+	allowed, maxPer := false, 1
+	if p, e := s.commentPolicy(ctx, t); e == nil {
+		allowed = p.Poll.Enabled
+		maxPer = p.Poll.MaxPerComment
+	}
+	if t.ServiceCode == "ludiskus" && t.ResourceType == "poll" {
+		allowed = false
+	}
+	caps, _ := json.Marshal(map[string]any{"pollAllowed": allowed, "pollMaxPerComment": maxPer, "poll": allowed})
+	state := interactionState(c.Status)
+	if t.State == "gone" || t.State == "blocked" {
+		state = t.State
+	}
+	return &domain.InteractionContext{Type: "comment", ID: c.ID, Exists: true, Owner: owner, SpaceUUID: t.SpaceUUID, Visibility: t.Visibility, State: state, Title: t.Title, Summary: excerptOf(c.BodyMD), ThumbnailURL: t.ThumbnailURL, CanonicalPath: commentURL(t, c.ID), Capabilities: caps}
+}
+func (s *Service) pollInteractionContext(ctx context.Context, id string) (*domain.InteractionContext, error) {
+	p, e := s.repo.GetPoll(ctx, id)
+	if e != nil {
+		return nil, e
+	}
+	state := "blocked"
+	if p.Status == "published" || p.Status == "closed" {
+		state = "active"
+	}
+	if p.Status == "deleted" {
+		state = "gone"
+	}
+	visibility := "private"
+	if p.Visibility != nil {
+		visibility = *p.Visibility
+	}
+	if visibility == "unlisted" {
+		visibility = "authenticated"
+	}
+	var space *string
+	if p.SpaceUUID != nil {
+		space = p.SpaceUUID
+	}
+	if p.Target != nil {
+		target, e := s.ensureCommentTarget(ctx, p.Target.Ref(), "")
+		if e != nil {
+			return nil, e
+		}
+		p.Target = target
+		visibility = target.Visibility
+		space = target.SpaceUUID
+		if target.State != "active" {
+			state = target.State
+			if state == "unverified" {
+				state = "blocked"
+			}
+		}
+	}
+	owner := &domain.InteractionOwner{Type: "profile"}
+	if p.CreatedBy != nil {
+		owner.ID = *p.CreatedBy
+	}
+	if p.AuthorKind == "space" && p.AuthorSpaceUUID != nil {
+		owner.Type = "space"
+		owner.ID = *p.AuthorSpaceUUID
+	}
+	if !s.cfg.PollEnabled {
+		state = "blocked"
+	}
+	return &domain.InteractionContext{Type: "poll", ID: id, Exists: true, Owner: owner, SpaceUUID: space, Visibility: visibility, State: state, Title: p.Question, Summary: p.DescriptionMD, CanonicalPath: p.Path(), Capabilities: json.RawMessage(`{"poll":false}`)}, nil
 }
