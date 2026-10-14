@@ -1,0 +1,197 @@
+name: ludiskus
+
+services:
+  postgres:
+    image: tm-postgres-pgbackrest:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${LUDISKUS_DB_USER:-ludiskus}
+      POSTGRES_PASSWORD: ${LUDISKUS_DB_PASSWORD:-ludiskus}
+      POSTGRES_DB: ${LUDISKUS_DB_NAME:-ludiskus}
+    volumes:
+      - ludiskus_postgres_data:/var/lib/postgresql/data
+      - /opt/postgres-backup/wal/ludiskus:/var/lib/postgresql/wal-archive
+      - ludiskus_pg_socket:/var/run/postgresql
+      - /opt/postgres-backup/repositories/ludiskus:/var/lib/pgbackrest
+      - /opt/postgres-backup/config/ludiskus.conf:/etc/pgbackrest/pgbackrest.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    networks:
+      default:
+        aliases:
+          - ludiskus-postgres
+  pgbackrest:
+    image: tm-pgbackrest:pilot
+    user: "70:70"
+    entrypoint: ["sleep", "infinity"]
+    restart: unless-stopped
+    volumes:
+      - ludiskus_postgres_data:/var/lib/postgresql/data:ro
+      - ludiskus_pg_socket:/var/run/postgresql:ro
+      - /opt/postgres-backup/wal/ludiskus:/var/lib/postgresql/wal-archive
+      - /opt/postgres-backup/repositories/ludiskus:/var/lib/pgbackrest
+      - /opt/postgres-backup/config/ludiskus.conf:/etc/pgbackrest/pgbackrest.conf:ro
+  redis:
+    image: redis:8.2.0-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    networks:
+      default:
+        aliases:
+          - ludiskus-redis
+  ludiskus-api:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      LUDISKUS_ROLE: api
+      LUDISKUS_HTTP_ADDR: ${LUDISKUS_HTTP_ADDR:-:8080}
+      LUDISKUS_DB_DSN: postgres://${LUDISKUS_DB_USER:-ludiskus}:${LUDISKUS_DB_PASSWORD:-ludiskus}@ludiskus-postgres:5432/${LUDISKUS_DB_NAME:-ludiskus}?sslmode=disable
+      LUDISKUS_DB_MAX_CONNS: ${LUDISKUS_DB_MAX_CONNS:-10}
+      LUDISKUS_REDIS_URL: ${LUDISKUS_REDIS_URL:-redis://ludiskus-redis:6379/6}
+      HIPCORE_URL: ${HIPCORE_URL:-http://hipcore-app}
+      HIPCORE_JWKS_URL: ${HIPCORE_JWKS_URL:-}
+      HIPCORE_AUDIENCE: ${HIPCORE_AUDIENCE:-}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-}
+      LUDISKUS_HIPCORE_CLIENT_ID: ${LUDISKUS_HIPCORE_CLIENT_ID:-}
+      LUDISKUS_HIPCORE_CLIENT_SECRET: ${LUDISKUS_HIPCORE_CLIENT_SECRET:-}
+      LUFAMI_API_URL: ${LUFAMI_API_URL:-http://lufami-api:8080}
+      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://lunoti-api:8080}
+      LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
+      LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
+      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT:-http://rustfs-tm:9000}
+      LUDISKUS_S3_ACCESS_KEY: ${LUDISKUS_S3_ACCESS_KEY:-minio}
+      LUDISKUS_S3_SECRET_KEY: ${LUDISKUS_S3_SECRET_KEY:-minio12345}
+      LUDISKUS_S3_BUCKET: ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
+      LUDISKUS_MAX_FILE_MB: ${LUDISKUS_MAX_FILE_MB:-25}
+      LUDISKUS_MAX_ATTACHMENTS: ${LUDISKUS_MAX_ATTACHMENTS:-10}
+      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json,text/csv,application/zip}
+      LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
+      LUDISKUS_COMMENT_ENABLED: ${LUDISKUS_COMMENT_ENABLED:-true}
+      LUDISKUS_POLL_ENABLED: ${LUDISKUS_POLL_ENABLED:-true}
+      LUDISKUS_POLL_DRAFT_TTL: ${LUDISKUS_POLL_DRAFT_TTL:-24h}
+      LUDISKUS_POLL_CLOSE_TICK: ${LUDISKUS_POLL_CLOSE_TICK:-30s}
+      LUDISKUS_POLL_REMIND_TICK: ${LUDISKUS_POLL_REMIND_TICK:-5m}
+      LUDISKUS_POLL_RESULTS_CACHE_TTL: ${LUDISKUS_POLL_RESULTS_CACHE_TTL:-10m}
+      LUDISKUS_POLL_ANON_SNAPSHOT_INTERVAL: ${LUDISKUS_POLL_ANON_SNAPSHOT_INTERVAL:-5m}
+      LUDISKUS_POLL_NEW_PROFILE_HOURS: ${LUDISKUS_POLL_NEW_PROFILE_HOURS:-24}
+      LUDISKUS_POLL_AUTO_HIDE_THRESHOLD: ${LUDISKUS_POLL_AUTO_HIDE_THRESHOLD:-5}
+      LUDISKUS_POLL_RANKED_LIVE_MAX: ${LUDISKUS_POLL_RANKED_LIVE_MAX:-50000}
+      LUDISKUS_COMMENT_RESOLVE_TIMEOUT: ${LUDISKUS_COMMENT_RESOLVE_TIMEOUT:-3s}
+      LUDISKUS_COMMENT_TARGET_TTL: ${LUDISKUS_COMMENT_TARGET_TTL:-6h}
+      LUDISKUS_COMMENT_SUMMARY_TTL: ${LUDISKUS_COMMENT_SUMMARY_TTL:-60s}
+      LUDISKUS_COMMENT_NOTIFY_DEBOUNCE: ${LUDISKUS_COMMENT_NOTIFY_DEBOUNCE:-5m}
+      LUDISKUS_COMMENT_BATCH_MAX: ${LUDISKUS_COMMENT_BATCH_MAX:-100}
+      LUDISKUS_COMMENT_MAX_REVISIONS: ${LUDISKUS_COMMENT_MAX_REVISIONS:-10}
+      LUDISKUS_COMMENT_NEW_PROFILE_HOURS: ${LUDISKUS_COMMENT_NEW_PROFILE_HOURS:-24}
+      LUDISKUS_COMMENT_PUBLIC_RPM: ${LUDISKUS_COMMENT_PUBLIC_RPM:-120}
+      LUDISKUS_COMMENT_POLL_INTERVAL: ${LUDISKUS_COMMENT_POLL_INTERVAL:-60s}
+      LUDISKUS_COMMENT_AUDIT_RETENTION_DAYS: ${LUDISKUS_COMMENT_AUDIT_RETENTION_DAYS:-365}
+      LUDISKUS_COMMENT_SERVICE_CLIENTS: ${LUDISKUS_COMMENT_SERVICE_CLIENTS:-}
+      LUMUSE_HIPCORE_CLIENT_ID: ${LUMUSE_HIPCORE_CLIENT_ID:-}
+      LUKODE_HIPCORE_CLIENT_ID: ${LUKODE_HIPCORE_CLIENT_ID:-}
+      LUPROJET_HIPCORE_CLIENT_ID: ${LUPROJET_HIPCORE_CLIENT_ID:-}
+      LUKOLEK_HIPCORE_CLIENT_ID: ${LUKOLEK_HIPCORE_CLIENT_ID:-}
+      LUXTORY_HIPCORE_CLIENT_ID: ${LUXTORY_HIPCORE_CLIENT_ID:-}
+      LUFAMI_HIPCORE_CLIENT_ID: ${LUFAMI_HIPCORE_CLIENT_ID:-}
+    ports:
+      - "${LUDISKUS_API_PORT:-8096}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  ludiskus-worker:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      LUDISKUS_ROLE: worker
+      LUDISKUS_DB_DSN: postgres://${LUDISKUS_DB_USER:-ludiskus}:${LUDISKUS_DB_PASSWORD:-ludiskus}@ludiskus-postgres:5432/${LUDISKUS_DB_NAME:-ludiskus}?sslmode=disable
+      LUDISKUS_DB_MAX_CONNS: ${LUDISKUS_DB_MAX_CONNS:-10}
+      LUDISKUS_REDIS_URL: ${LUDISKUS_REDIS_URL:-redis://ludiskus-redis:6379/6}
+      HIPCORE_URL: ${HIPCORE_URL:-http://hipcore-app}
+      HIPCORE_JWKS_URL: ${HIPCORE_JWKS_URL:-}
+      HIPCORE_AUDIENCE: ${HIPCORE_AUDIENCE:-}
+      GATEWAY_SIGNING_SECRET: ${GATEWAY_SIGNING_SECRET:-}
+      LUDISKUS_HIPCORE_CLIENT_ID: ${LUDISKUS_HIPCORE_CLIENT_ID:-}
+      LUDISKUS_HIPCORE_CLIENT_SECRET: ${LUDISKUS_HIPCORE_CLIENT_SECRET:-}
+      LUFAMI_API_URL: ${LUFAMI_API_URL:-http://lufami-api:8080}
+      LUNOTI_API_URL: ${LUNOTI_API_URL:-http://lunoti-api:8080}
+      LUDISKUS_LUNOTI_CLIENT_ID: ${LUDISKUS_LUNOTI_CLIENT_ID:-}
+      LUDISKUS_LUNOTI_CLIENT_SECRET: ${LUDISKUS_LUNOTI_CLIENT_SECRET:-}
+      LUDISKUS_S3_ENDPOINT: ${LUDISKUS_S3_ENDPOINT:-http://rustfs-tm:9000}
+      LUDISKUS_S3_ACCESS_KEY: ${LUDISKUS_S3_ACCESS_KEY:-minio}
+      LUDISKUS_S3_SECRET_KEY: ${LUDISKUS_S3_SECRET_KEY:-minio12345}
+      LUDISKUS_S3_BUCKET: ${LUDISKUS_S3_BUCKET:-ludiskus-attachments}
+      LUDISKUS_CACHE_TTL: ${LUDISKUS_CACHE_TTL:-1h}
+      LUDISKUS_PROFILE_SYNC_INTERVAL: ${LUDISKUS_PROFILE_SYNC_INTERVAL:-6h}
+      LUDISKUS_SPACE_SYNC_INTERVAL: ${LUDISKUS_SPACE_SYNC_INTERVAL:-6h}
+      LUDISKUS_ATTACH_TTL: ${LUDISKUS_ATTACH_TTL:-24h}
+      LUDISKUS_OUTBOX_MAX_ATTEMPTS: ${LUDISKUS_OUTBOX_MAX_ATTEMPTS:-6}
+      LUDISKUS_MAX_ATTACHMENTS: ${LUDISKUS_MAX_ATTACHMENTS:-10}
+      LUDISKUS_ALLOWED_MIME: ${LUDISKUS_ALLOWED_MIME:-image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/markdown,application/json,text/csv,application/zip}
+      LUDISKUS_LOG_LEVEL: ${LUDISKUS_LOG_LEVEL:-info}
+      LUDISKUS_COMMENT_ENABLED: ${LUDISKUS_COMMENT_ENABLED:-true}
+      LUDISKUS_POLL_ENABLED: ${LUDISKUS_POLL_ENABLED:-true}
+      LUDISKUS_POLL_DRAFT_TTL: ${LUDISKUS_POLL_DRAFT_TTL:-24h}
+      LUDISKUS_POLL_CLOSE_TICK: ${LUDISKUS_POLL_CLOSE_TICK:-30s}
+      LUDISKUS_POLL_REMIND_TICK: ${LUDISKUS_POLL_REMIND_TICK:-5m}
+      LUDISKUS_POLL_RESULTS_CACHE_TTL: ${LUDISKUS_POLL_RESULTS_CACHE_TTL:-10m}
+      LUDISKUS_POLL_ANON_SNAPSHOT_INTERVAL: ${LUDISKUS_POLL_ANON_SNAPSHOT_INTERVAL:-5m}
+      LUDISKUS_POLL_NEW_PROFILE_HOURS: ${LUDISKUS_POLL_NEW_PROFILE_HOURS:-24}
+      LUDISKUS_POLL_AUTO_HIDE_THRESHOLD: ${LUDISKUS_POLL_AUTO_HIDE_THRESHOLD:-5}
+      LUDISKUS_POLL_RANKED_LIVE_MAX: ${LUDISKUS_POLL_RANKED_LIVE_MAX:-50000}
+      LUDISKUS_COMMENT_RESOLVE_TIMEOUT: ${LUDISKUS_COMMENT_RESOLVE_TIMEOUT:-3s}
+      LUDISKUS_COMMENT_TARGET_TTL: ${LUDISKUS_COMMENT_TARGET_TTL:-6h}
+      LUDISKUS_COMMENT_NOTIFY_DEBOUNCE: ${LUDISKUS_COMMENT_NOTIFY_DEBOUNCE:-5m}
+      LUDISKUS_COMMENT_BATCH_MAX: ${LUDISKUS_COMMENT_BATCH_MAX:-100}
+      LUDISKUS_COMMENT_MAX_REVISIONS: ${LUDISKUS_COMMENT_MAX_REVISIONS:-10}
+      LUDISKUS_COMMENT_AUDIT_RETENTION_DAYS: ${LUDISKUS_COMMENT_AUDIT_RETENTION_DAYS:-365}
+      LUDISKUS_COMMENT_RECONCILE_HOUR: ${LUDISKUS_COMMENT_RECONCILE_HOUR:-20}
+      LUDISKUS_COMMENT_SERVICE_CLIENTS: ${LUDISKUS_COMMENT_SERVICE_CLIENTS:-}
+      LUMUSE_HIPCORE_CLIENT_ID: ${LUMUSE_HIPCORE_CLIENT_ID:-}
+      LUKODE_HIPCORE_CLIENT_ID: ${LUKODE_HIPCORE_CLIENT_ID:-}
+      LUPROJET_HIPCORE_CLIENT_ID: ${LUPROJET_HIPCORE_CLIENT_ID:-}
+      LUKOLEK_HIPCORE_CLIENT_ID: ${LUKOLEK_HIPCORE_CLIENT_ID:-}
+      LUXTORY_HIPCORE_CLIENT_ID: ${LUXTORY_HIPCORE_CLIENT_ID:-}
+      LUFAMI_HIPCORE_CLIENT_ID: ${LUFAMI_HIPCORE_CLIENT_ID:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+volumes:
+  ludiskus_postgres_data:
+  ludiskus_pg_socket:
+
+networks:
+  default:
+    driver: bridge
+  shared:
+    external: true
+    name: ${SHARED_DOCKER_NETWORK:-hippo}
