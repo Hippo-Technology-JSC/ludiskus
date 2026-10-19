@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"ludiskus/internal/membershipsync"
 	"net/http"
 	"net/url"
 	"strings"
@@ -143,6 +144,16 @@ func (s *Service) Space(ctx context.Context, uuid string) (*domain.CachedSpace, 
 // Members trả thành viên Space (cache list trong Redis; miss → DB; rỗng/stale →
 // sync từ HipCore).
 func (s *Service) Members(ctx context.Context, spaceUUID string) ([]domain.CachedMember, error) {
+	if fresh, enabled, err := membershipsync.Members(ctx, spaceUUID); enabled {
+		if err != nil {
+			return nil, err
+		}
+		ms := make([]domain.CachedMember, 0, len(fresh))
+		for _, m := range fresh {
+			ms = append(ms, domain.CachedMember{SpaceUUID: spaceUUID, ProfileUUID: m.ProfileUUID, Role: m.Role, SyncedAt: time.Now()})
+		}
+		return ms, nil
+	}
 	if s.redis != nil {
 		if raw, err := s.redis.Get(ctx, membersKey(spaceUUID)).Bytes(); err == nil {
 			var ms []domain.CachedMember
@@ -199,6 +210,16 @@ func (s *Service) cacheMembers(ctx context.Context, spaceUUID string, ms []domai
 
 // SyncMembers gọi HipCore /api/spaces/{uuid}/members → ReplaceMembers.
 func (s *Service) SyncMembers(ctx context.Context, spaceUUID string) ([]domain.CachedMember, error) {
+	if fresh, enabled, err := membershipsync.Members(ctx, spaceUUID); enabled {
+		if err != nil {
+			return nil, err
+		}
+		ms := make([]domain.CachedMember, 0, len(fresh))
+		for _, m := range fresh {
+			ms = append(ms, domain.CachedMember{SpaceUUID: spaceUUID, ProfileUUID: m.ProfileUUID, Role: m.Role, SyncedAt: time.Now()})
+		}
+		return ms, nil
+	}
 	if !s.Enabled() {
 		return nil, fmt.Errorf("hipcore client chưa cấu hình")
 	}

@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"ludiskus/internal/membershipsync"
 	"os"
 	"os/signal"
 	"syscall"
@@ -74,6 +75,7 @@ func run(log *slog.Logger) error {
 	}
 
 	repo := repository.New(pool)
+	membershipsync.Start(ctx, cfg.HipcoreURL, os.Getenv("GATEWAY_SIGNING_SECRET"), membershipsync.Postgres(pool, "space_member_cache", "", false, false, false))
 	ident := identity.New(repo, rdb, cfg, log)
 	lunoti := notify.New(cfg)
 	svc := service.New(repo, ident, store, lunoti, markdown.New(), cfg, rdb)
