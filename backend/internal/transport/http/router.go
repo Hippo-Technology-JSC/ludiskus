@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"ludiskus/internal/membershipsync"
 	"net/http"
 	"strconv"
 
@@ -25,6 +26,7 @@ func NewRouter(svc *service.Service, authn *auth.Authenticator, log *slog.Logger
 	s := &Server{svc: svc, log: log}
 
 	r := chi.NewRouter()
+	r.Use(membershipsync.Middleware)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
